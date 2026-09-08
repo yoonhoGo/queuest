@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, RefObject } from "react";
 import {
   activeTaskCount,
   advanceTaskStatus,
@@ -65,6 +65,8 @@ type ProjectLoadState = "idle" | "loading" | "ready" | "error";
 
 function App() {
   const [view, setView] = useState<AppView>("inbox");
+  const viewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const previousViewRef = useRef<AppView>(view);
   const [todos, setTodos] = useState<InboxTodo[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -74,6 +76,17 @@ function App() {
   const [projectLoadState, setProjectLoadState] = useState<ProjectLoadState>("idle");
   const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
   const [selectedProjectGraph, setSelectedProjectGraph] = useState<ProjectGraph | null>(null);
+
+  useEffect(() => {
+    if (previousViewRef.current === view) {
+      return;
+    }
+
+    previousViewRef.current = view;
+    if (view !== "project") {
+      viewHeadingRef.current?.focus();
+    }
+  }, [view]);
 
   useEffect(() => {
     let mounted = true;
@@ -246,6 +259,7 @@ function App() {
       <main className="main-content">
         {view === "project-picker" ? (
           <ProjectPicker
+            headingRef={viewHeadingRef}
             onBack={() => setView("inbox")}
             projectGraphs={projectGraphs}
             projectLoadState={projectLoadState}
@@ -269,6 +283,7 @@ function App() {
           <LoadingState />
         ) : (
           <TodoInbox
+            headingRef={viewHeadingRef}
             todos={todos}
             actionError={actionError}
             deletedTodo={deletedTodo}
@@ -357,6 +372,7 @@ function LoadErrorState({ message, onRetry }: LoadErrorStateProps) {
 }
 
 interface TodoInboxProps {
+  headingRef: RefObject<HTMLHeadingElement | null>;
   todos: InboxTodo[];
   actionError: string | null;
   deletedTodo: InboxTodo | null;
@@ -369,6 +385,7 @@ interface TodoInboxProps {
 }
 
 function TodoInbox({
+  headingRef,
   todos,
   actionError,
   deletedTodo,
@@ -428,7 +445,7 @@ function TodoInbox({
       <section className="inbox-intro" aria-labelledby="inbox-title">
         <div>
           <p className="eyebrow">PERSONAL INBOX</p>
-          <h2 id="inbox-title">먼저, 할 일을 모아두세요</h2>
+          <h2 id="inbox-title" ref={headingRef} tabIndex={-1}>먼저, 할 일을 모아두세요</h2>
           <p className="inbox-lede">
             프로젝트를 고르기 전에도 생각을 놓치지 않도록 기록할 수 있습니다.
           </p>
@@ -549,6 +566,17 @@ function TodoRow({
   onSaveEdit,
   onCancelEdit,
 }: TodoRowProps) {
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  const previousEditingRef = useRef(editing);
+
+  useEffect(() => {
+    if (previousEditingRef.current && !editing) {
+      editButtonRef.current?.focus();
+    }
+
+    previousEditingRef.current = editing;
+  }, [editing]);
+
   return (
     <article className={`todo-row ${todo.completed ? "completed" : ""}`}>
       <button
@@ -592,7 +620,7 @@ function TodoRow({
       )}
       {!editing && (
         <div className="todo-actions">
-          <button className="row-action" type="button" onClick={onEdit}>편집</button>
+          <button className="row-action" ref={editButtonRef} type="button" onClick={onEdit}>편집</button>
           <button className="row-action danger" type="button" onClick={() => void onDelete()}>삭제</button>
         </div>
       )}
@@ -601,6 +629,7 @@ function TodoRow({
 }
 
 interface ProjectPickerProps {
+  headingRef: RefObject<HTMLHeadingElement | null>;
   onBack: () => void;
   projectGraphs: ProjectGraph[] | null;
   projectLoadState: ProjectLoadState;
@@ -614,6 +643,7 @@ interface ProjectPickerProps {
 }
 
 function ProjectPicker({
+  headingRef,
   onBack,
   projectGraphs,
   projectLoadState,
@@ -626,13 +656,29 @@ function ProjectPicker({
   onClearError,
 }: ProjectPickerProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const previousProjectLoadStateRef = useRef(projectLoadState);
+
+  useEffect(() => {
+    if (
+      previousProjectLoadStateRef.current === "loading" &&
+      projectLoadState !== "loading"
+    ) {
+      headingRef.current?.focus();
+    }
+
+    previousProjectLoadStateRef.current = projectLoadState;
+  }, [headingRef, projectLoadState]);
 
   return (
-    <section className="project-picker" aria-labelledby="project-picker-title">
+    <section
+      className="project-picker"
+      aria-labelledby="project-picker-title"
+      aria-busy={projectLoadState === "loading"}
+    >
       <div className="section-heading">
         <div>
           <p className="eyebrow">PROJECT GATE</p>
-          <h2 id="project-picker-title">어디서 이어갈까요?</h2>
+          <h2 id="project-picker-title" ref={headingRef} tabIndex={-1}>어디서 이어갈까요?</h2>
         </div>
         <span className="workspace-chip">선택 후 로드</span>
       </div>
@@ -773,6 +819,8 @@ function ProjectCreateForm({
         id="project-name"
         type="text"
         value={name}
+        autoFocus
+        disabled={submitting}
         placeholder="예: Queuest"
         onChange={(event) => {
           setName(event.target.value);
@@ -786,6 +834,7 @@ function ProjectCreateForm({
         id="first-task-title"
         type="text"
         value={firstTaskTitle}
+        disabled={submitting}
         placeholder="인박스의 할 일을 첫 퀘스트로 복사할 수 있습니다"
         onChange={(event) => setFirstTaskTitle(event.target.value)}
       />
@@ -817,6 +866,7 @@ interface ProjectBoardProps {
 }
 
 function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const [tasks, setTasks] = useState<Task[]>(graph.tasks);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
     graph.milestones[0]?.id ?? null,
@@ -842,6 +892,10 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
     [selectedMilestone, tasks],
   );
   const activeCount = activeTaskCount(tasks);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
 
   async function updateTaskStatus(taskId: string, status: TaskStatus) {
     const currentTask = tasks.find((task) => task.id === taskId);
@@ -909,7 +963,7 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
         <section className="workspace-header" aria-labelledby="workspace-title">
           <div>
             <p className="eyebrow">WORKSPACE</p>
-            <h2 id="workspace-title">{graph.workspace.name}</h2>
+            <h2 id="workspace-title" ref={headingRef} tabIndex={-1}>{graph.workspace.name}</h2>
           </div>
           <span className="workspace-chip">로컬 저장소</span>
         </section>
@@ -930,8 +984,15 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
             </span>
             <span className="project-percent">{projectProgress}%</span>
           </div>
-          <div className="progress-track" aria-label={`프로젝트 진행률 ${projectProgress}%`}>
-            <span style={{ width: `${projectProgress}%` }} />
+          <div
+            className="progress-track"
+            role="progressbar"
+            aria-label={`프로젝트 진행률 ${projectProgress}%`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={projectProgress}
+          >
+            <span aria-hidden="true" style={{ width: `${projectProgress}%` }} />
           </div>
         </section>
 
@@ -983,7 +1044,7 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
               })}
             </div>
           ) : (
-            <section className="state-panel compact-state" aria-label="스테이지 없음">
+            <section className="state-panel compact-state" role="status" aria-label="스테이지 없음">
               <span className="state-mark" aria-hidden="true">＋</span>
               <p className="eyebrow">NO STAGES YET</p>
               <h2>아직 스테이지가 없습니다</h2>
@@ -1062,8 +1123,15 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
                 <span>XP {experience}</span>
                 <span>다음 레벨까지 {Math.max(0, 100 - (experience % 100))}</span>
               </div>
-              <div className="xp-track" aria-label={`경험치 ${experience}`}>
-                <span style={{ width: `${Math.min(100, experience % 100 || (experience > 0 ? 100 : 0))}%` }} />
+              <div
+                className="xp-track"
+                role="progressbar"
+                aria-label={`경험치 ${experience}`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={experience % 100}
+              >
+                <span aria-hidden="true" style={{ width: `${Math.min(100, experience % 100 || (experience > 0 ? 100 : 0))}%` }} />
               </div>
             </div>
           </div>
@@ -1081,8 +1149,15 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
                       <span>{skill.name}</span>
                       <strong>{skill.level}</strong>
                     </div>
-                    <div className="skill-track" aria-label={`${skill.name} 레벨 ${skill.level}`}>
-                      <span style={{ width: `${Math.min(100, skill.level * 20)}%` }} />
+                    <div
+                      className="skill-track"
+                      role="progressbar"
+                      aria-label={`${skill.name} 레벨 ${skill.level}`}
+                      aria-valuemin={0}
+                      aria-valuemax={5}
+                      aria-valuenow={skill.level}
+                    >
+                      <span aria-hidden="true" style={{ width: `${Math.min(100, skill.level * 20)}%` }} />
                     </div>
                   </div>
                 ))}
