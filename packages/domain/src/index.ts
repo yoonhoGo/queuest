@@ -16,6 +16,19 @@ export interface Workspace {
   name: string;
 }
 
+/**
+ * A quick-capture item that does not require a workspace or project yet.
+ *
+ * Inbox todos deliberately stay separate from project tasks: a captured idea
+ * can be persisted before the user has decided where it belongs.
+ */
+export interface InboxTodo {
+  id: EntityId;
+  title: string;
+  completed: boolean;
+  createdAt: string;
+}
+
 export interface Project {
   id: EntityId;
   workspaceId: EntityId;

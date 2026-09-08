@@ -1,13 +1,14 @@
 import Database from "@tauri-apps/plugin-sql";
 import type {
   EntityId,
+  InboxTodo,
   Milestone,
   Project,
   ProjectGraph,
   Task,
   Workspace,
 } from "@queuest/domain";
-import type { TaskRepository } from "@queuest/ports";
+import type { InboxTodoRepository, QueuestRepository } from "@queuest/ports";
 
 export const DATABASE_PATH = "sqlite:queuest.db";
 
@@ -58,9 +59,16 @@ export const SCHEMA_STATEMENTS = [
     agent_tool TEXT,
     source_tool TEXT
   )`,
+  `CREATE TABLE IF NOT EXISTS inbox_todos (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
+    created_at TEXT NOT NULL
+  )`,
   "CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id)",
   "CREATE INDEX IF NOT EXISTS idx_milestones_project_id ON milestones(project_id)",
   "CREATE INDEX IF NOT EXISTS idx_tasks_milestone_id ON tasks(milestone_id)",
+  "CREATE INDEX IF NOT EXISTS idx_inbox_todos_created_at ON inbox_todos(created_at)",
 ];
 
 interface WorkspaceRow {
@@ -95,6 +103,13 @@ interface TaskRow {
   external_ref: string | null;
 }
 
+interface InboxTodoRow {
+  id: string;
+  title: string;
+  completed: number | boolean;
+  created_at: string;
+}
+
 function readSkills(value: string): string[] {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -120,7 +135,16 @@ function toTask(row: TaskRow): Task {
   };
 }
 
-export class SqliteTaskRepository implements TaskRepository {
+function toInboxTodo(row: InboxTodoRow): InboxTodo {
+  return {
+    id: row.id,
+    title: row.title,
+    completed: Boolean(row.completed),
+    createdAt: row.created_at,
+  };
+}
+
+export class SqliteTaskRepository implements QueuestRepository, InboxTodoRepository {
   public constructor(private readonly database: Database) {}
 
   public async initialize(): Promise<void> {
@@ -251,6 +275,29 @@ export class SqliteTaskRepository implements TaskRepository {
 
   public async deleteTask(taskId: EntityId): Promise<void> {
     await this.database.execute("DELETE FROM tasks WHERE id = $1", [taskId]);
+  }
+
+  public async listInboxTodos(): Promise<InboxTodo[]> {
+    const rows = await this.database.select<InboxTodoRow[]>(
+      "SELECT id, title, completed, created_at FROM inbox_todos ORDER BY created_at",
+    );
+    return rows.map(toInboxTodo);
+  }
+
+  public async saveInboxTodo(todo: InboxTodo): Promise<void> {
+    await this.database.execute(
+      `INSERT INTO inbox_todos (id, title, completed, created_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT(id) DO UPDATE SET
+         title = excluded.title,
+         completed = excluded.completed,
+         created_at = excluded.created_at`,
+      [todo.id, todo.title, todo.completed ? 1 : 0, todo.createdAt],
+    );
+  }
+
+  public async deleteInboxTodo(todoId: EntityId): Promise<void> {
+    await this.database.execute("DELETE FROM inbox_todos WHERE id = $1", [todoId]);
   }
 }
 
