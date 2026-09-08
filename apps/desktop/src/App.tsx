@@ -13,20 +13,26 @@ import {
   isMilestoneComplete,
   isMilestoneUnlocked,
 } from "@queuest/domain";
-import type { InboxTodo, Task, TaskStatus } from "@queuest/domain";
-import {
-  DEMO_CHARACTER,
-  DEMO_LOADOUT,
-  DEMO_MILESTONES,
-  DEMO_PROJECT,
-  DEMO_TASKS,
-  DEMO_WORKSPACE,
-} from "./data/demo";
+import type {
+  Character,
+  InboxTodo,
+  Loadout,
+  ProjectGraph,
+  Task,
+  TaskStatus,
+} from "@queuest/domain";
 import {
   deleteInboxTodo,
   loadInboxTodos,
   saveInboxTodo,
 } from "./data/inbox";
+import {
+  createProject,
+  graphForProject,
+  loadProjectGraphs,
+  saveTask,
+  type NewProjectInput,
+} from "./data/project";
 import "./App.css";
 
 const STATUS_COLUMNS: Array<{ status: TaskStatus; label: string; hint: string }> = [
@@ -42,7 +48,20 @@ const PROJECT_STATUS_LABEL: Record<ReturnType<typeof calculateProjectStatus>, st
   complete: "완주",
 };
 
+const DEFAULT_CHARACTER: Character = {
+  name: "Yoonho",
+  job: "developer",
+  spriteId: "developer",
+};
+
+const DEFAULT_LOADOUT: Loadout = {
+  projectId: "",
+  agentTool: "claude",
+  sourceTool: "gh",
+};
+
 type AppView = "inbox" | "project-picker" | "project";
+type ProjectLoadState = "idle" | "loading" | "ready" | "error";
 
 function App() {
   const [view, setView] = useState<AppView>("inbox");
@@ -51,6 +70,10 @@ function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [deletedTodo, setDeletedTodo] = useState<InboxTodo | null>(null);
+  const [projectGraphs, setProjectGraphs] = useState<ProjectGraph[] | null>(null);
+  const [projectLoadState, setProjectLoadState] = useState<ProjectLoadState>("idle");
+  const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
+  const [selectedProjectGraph, setSelectedProjectGraph] = useState<ProjectGraph | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -145,21 +168,97 @@ function App() {
     }
   }
 
-  if (view === "project") {
-    return <DemoProjectBoard onBackToInbox={() => setView("inbox")} />;
+  async function loadExistingProjects(): Promise<void> {
+    setProjectLoadState("loading");
+    setProjectLoadError(null);
+    setActionError(null);
+
+    try {
+      const graphs = await loadProjectGraphs();
+      setProjectGraphs(graphs);
+      setProjectLoadState("ready");
+    } catch (error: unknown) {
+      setProjectLoadState("error");
+      setProjectLoadError(readableError(error));
+    }
+  }
+
+  function selectProject(graph: ProjectGraph) {
+    setSelectedProjectGraph(graph);
+    setView("project");
+  }
+
+  function backToInbox() {
+    setSelectedProjectGraph(null);
+    setProjectGraphs(null);
+    setProjectLoadState("idle");
+    setProjectLoadError(null);
+    setView("inbox");
+  }
+
+  function openProjectPicker() {
+    setActionError(null);
+    setView("project-picker");
+  }
+
+  async function finishCreateProject(input: NewProjectInput): Promise<boolean> {
+    setProjectLoadState("loading");
+    setProjectLoadError(null);
+    setActionError(null);
+
+    try {
+      const created = await createProject(input);
+      const graphs = await loadProjectGraphs();
+      setProjectGraphs(graphs);
+      setProjectLoadState("ready");
+      const graph = graphForProject(graphs, created.project.id);
+      if (!graph) {
+        throw new Error("새 프로젝트를 다시 불러오지 못했습니다.");
+      }
+
+      selectProject(graph);
+      return true;
+    } catch (error: unknown) {
+      setProjectLoadState("error");
+      const message = readableError(error);
+      setProjectLoadError(message);
+      setActionError(message);
+      return false;
+    }
+  }
+
+  if (view === "project" && selectedProjectGraph) {
+    return (
+      <ProjectBoard
+        key={selectedProjectGraph.project.id}
+        graph={selectedProjectGraph}
+        onBackToInbox={backToInbox}
+      />
+    );
   }
 
   return (
     <div className="app-shell">
       <AppHeader
         todoCount={todos?.filter((todo) => !todo.completed).length ?? 0}
-        onOpenProject={() => setView("project-picker")}
+        onOpenProject={openProjectPicker}
       />
       <main className="main-content">
         {view === "project-picker" ? (
           <ProjectPicker
             onBack={() => setView("inbox")}
-            onSelectDemoProject={() => setView("project")}
+            projectGraphs={projectGraphs}
+            projectLoadState={projectLoadState}
+            projectLoadError={projectLoadError}
+            actionError={actionError}
+            firstTodoTitle={todos?.find((todo) => !todo.completed)?.title}
+            onLoadExisting={loadExistingProjects}
+            onSelectProject={selectProject}
+            onCreateProject={finishCreateProject}
+            onClearError={() => {
+              setProjectLoadError(null);
+              setActionError(null);
+            }}
           />
         ) : loadError ? (
           <LoadErrorState
@@ -178,7 +277,7 @@ function App() {
             onDelete={removeTodo}
             onRecover={recoverTodo}
             onClearActionError={() => setActionError(null)}
-            onOpenProject={() => setView("project-picker")}
+            onOpenProject={openProjectPicker}
           />
         )}
       </main>
@@ -503,11 +602,30 @@ function TodoRow({
 
 interface ProjectPickerProps {
   onBack: () => void;
-  onSelectDemoProject: () => void;
+  projectGraphs: ProjectGraph[] | null;
+  projectLoadState: ProjectLoadState;
+  projectLoadError: string | null;
+  actionError: string | null;
+  firstTodoTitle?: string;
+  onLoadExisting: () => Promise<void>;
+  onSelectProject: (graph: ProjectGraph) => void;
+  onCreateProject: (input: NewProjectInput) => Promise<boolean>;
+  onClearError: () => void;
 }
 
-function ProjectPicker({ onBack, onSelectDemoProject }: ProjectPickerProps) {
-  const [createRequested, setCreateRequested] = useState(false);
+function ProjectPicker({
+  onBack,
+  projectGraphs,
+  projectLoadState,
+  projectLoadError,
+  actionError,
+  firstTodoTitle,
+  onLoadExisting,
+  onSelectProject,
+  onCreateProject,
+  onClearError,
+}: ProjectPickerProps) {
+  const [showCreateForm, setShowCreateForm] = useState(false);
 
   return (
     <section className="project-picker" aria-labelledby="project-picker-title">
@@ -519,93 +637,247 @@ function ProjectPicker({ onBack, onSelectDemoProject }: ProjectPickerProps) {
         <span className="workspace-chip">선택 후 로드</span>
       </div>
       <p className="project-picker-lede">
-        인박스는 그대로 두고, 명시적으로 프로젝트를 선택한 뒤 원정 보드를 엽니다.
+        인박스는 그대로 두고, 명시적으로 프로젝트를 선택하거나 새 원정을 만든 뒤 보드를 엽니다.
       </p>
 
-      <div className="project-choice-list">
-        <article className="project-choice-card selected-candidate">
-          <div className="project-choice-icon" aria-hidden="true">✦</div>
-          <div>
-            <p className="eyebrow">SAVED PROJECT</p>
-            <h3>{DEMO_PROJECT.name}</h3>
-            <p>현재 준비된 데모 원정 그래프를 엽니다.</p>
-          </div>
-          <button className="primary-button" type="button" onClick={onSelectDemoProject}>
-            이 프로젝트 열기
-          </button>
-        </article>
+      {actionError && (
+        <div className="action-error" role="alert">
+          <span>{actionError}</span>
+          <button type="button" onClick={onClearError}>닫기</button>
+        </div>
+      )}
 
-        <article className="project-choice-card">
-          <div className="project-choice-icon muted" aria-hidden="true">＋</div>
-          <div>
-            <p className="eyebrow">NEW EXPEDITION</p>
-            <h3>새 프로젝트 만들기</h3>
-            <p>프로젝트 이름과 저장소를 정하는 흐름을 시작합니다.</p>
+      {showCreateForm ? (
+        <ProjectCreateForm
+          initialTaskTitle={firstTodoTitle}
+          submitting={projectLoadState === "loading"}
+          onCancel={() => setShowCreateForm(false)}
+          onSubmit={onCreateProject}
+        />
+      ) : projectLoadState === "loading" ? (
+        <ProjectLoadingState />
+      ) : projectLoadState === "error" ? (
+        <section className="state-panel error-state" role="alert">
+          <span className="state-mark" aria-hidden="true">!</span>
+          <p className="eyebrow">PROJECTS UNAVAILABLE</p>
+          <h2>프로젝트를 불러오지 못했습니다</h2>
+          <p>{projectLoadError ?? "로컬 저장소와 통신하지 못했습니다."}</p>
+          <div className="state-actions">
+            <button className="primary-button" type="button" onClick={() => void onLoadExisting()}>
+              다시 불러오기
+            </button>
+            <button className="secondary-button" type="button" onClick={() => setShowCreateForm(true)}>
+              새 프로젝트 만들기
+            </button>
           </div>
-          <button className="secondary-button" type="button" onClick={() => setCreateRequested(true)}>
-            만들기 시작
+        </section>
+      ) : projectLoadState === "ready" && projectGraphs && projectGraphs.length > 0 ? (
+        <section className="project-list-panel" aria-labelledby="saved-projects-title">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">SAVED PROJECTS</p>
+              <h2 id="saved-projects-title">프로젝트 선택</h2>
+            </div>
+            <span className="section-note">{projectGraphs.length}개</span>
+          </div>
+          <div className="project-list">
+            {projectGraphs.map((graph) => (
+              <button
+                className="project-list-card"
+                key={graph.project.id}
+                type="button"
+                onClick={() => onSelectProject(graph)}
+              >
+                <span className="project-choice-icon" aria-hidden="true">✦</span>
+                <span className="project-list-copy">
+                  <span className="eyebrow">{graph.workspace.name}</span>
+                  <strong>{graph.project.name}</strong>
+                  <span>{graph.milestones.length}개 스테이지 · {graph.tasks.length}개 퀘스트</span>
+                </span>
+                <span className="project-list-arrow" aria-hidden="true">→</span>
+              </button>
+            ))}
+          </div>
+          <button className="secondary-button project-create-link" type="button" onClick={() => setShowCreateForm(true)}>
+            + 새 프로젝트 만들기
           </button>
-          {createRequested && (
-            <p className="project-note" role="status">
-              생성 화면은 다음 단계에서 연결됩니다. 지금은 인박스에 계속 기록할 수 있습니다.
-            </p>
-          )}
-        </article>
-      </div>
+        </section>
+      ) : (
+        <section className="state-panel no-project-state" aria-labelledby="no-project-title">
+          <span className="state-mark" aria-hidden="true">⌂</span>
+          <p className="eyebrow">NO PROJECT SELECTED</p>
+          <h2 id="no-project-title">
+            {projectLoadState === "ready" ? "저장된 프로젝트가 없습니다" : "아직 프로젝트를 고르지 않았습니다"}
+          </h2>
+          <p>
+            {projectLoadState === "ready"
+              ? "새 프로젝트를 만들면 첫 스테이지와 함께 보드가 열립니다."
+              : "기존 프로젝트를 불러오거나 새 원정을 만들어 보드로 이동하세요."}
+          </p>
+          <div className="state-actions">
+            <button className="primary-button" type="button" onClick={() => void onLoadExisting()}>
+              기존 프로젝트 불러오기
+            </button>
+            <button className="secondary-button" type="button" onClick={() => setShowCreateForm(true)}>
+              새 프로젝트 만들기
+            </button>
+          </div>
+        </section>
+      )}
 
       <button className="back-link" type="button" onClick={onBack}>← 인박스로 돌아가기</button>
     </section>
   );
 }
 
-interface DemoProjectBoardProps {
+interface ProjectCreateFormProps {
+  initialTaskTitle?: string;
+  submitting: boolean;
+  onCancel: () => void;
+  onSubmit: (input: NewProjectInput) => Promise<boolean>;
+}
+
+function ProjectCreateForm({
+  initialTaskTitle,
+  submitting,
+  onCancel,
+  onSubmit,
+}: ProjectCreateFormProps) {
+  const [name, setName] = useState("");
+  const [firstTaskTitle, setFirstTaskTitle] = useState(initialTaskTitle ?? "");
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setValidationError("프로젝트 이름을 입력하세요.");
+      return;
+    }
+
+    setValidationError(null);
+    await onSubmit({ name: trimmedName, firstTaskTitle: firstTaskTitle.trim() || undefined });
+  }
+
+  return (
+    <form className="project-create-form" onSubmit={handleSubmit}>
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">NEW EXPEDITION</p>
+          <h2>새 프로젝트 만들기</h2>
+        </div>
+        <span className="section-note">SQLite에 저장</span>
+      </div>
+      <label htmlFor="project-name">프로젝트 이름</label>
+      <input
+        id="project-name"
+        type="text"
+        value={name}
+        placeholder="예: Queuest"
+        onChange={(event) => {
+          setName(event.target.value);
+          if (validationError) {
+            setValidationError(null);
+          }
+        }}
+      />
+      <label htmlFor="first-task-title">첫 퀘스트 <span>(선택)</span></label>
+      <input
+        id="first-task-title"
+        type="text"
+        value={firstTaskTitle}
+        placeholder="인박스의 할 일을 첫 퀘스트로 복사할 수 있습니다"
+        onChange={(event) => setFirstTaskTitle(event.target.value)}
+      />
+      {validationError && <p className="validation-note" role="alert">{validationError}</p>}
+      <div className="form-actions">
+        <button className="primary-button" type="submit" disabled={submitting}>
+          {submitting ? "저장 중…" : "프로젝트 만들기"}
+        </button>
+        <button className="secondary-button" type="button" onClick={onCancel} disabled={submitting}>취소</button>
+      </div>
+    </form>
+  );
+}
+
+function ProjectLoadingState() {
+  return (
+    <section className="state-panel" role="status" aria-live="polite">
+      <span className="state-mark loading-mark" aria-hidden="true">…</span>
+      <p className="eyebrow">LOADING PROJECTS</p>
+      <h2>프로젝트를 준비하는 중</h2>
+      <p>선택할 프로젝트 그래프를 로컬 저장소에서 불러오고 있습니다.</p>
+    </section>
+  );
+}
+
+interface ProjectBoardProps {
+  graph: ProjectGraph;
   onBackToInbox: () => void;
 }
 
-function DemoProjectBoard({ onBackToInbox }: DemoProjectBoardProps) {
-  const [tasks, setTasks] = useState<Task[]>(DEMO_TASKS);
-  const [selectedMilestoneId, setSelectedMilestoneId] = useState(DEMO_MILESTONES[1].id);
+function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
+  const [tasks, setTasks] = useState<Task[]>(graph.tasks);
+  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
+    graph.milestones[0]?.id ?? null,
+  );
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const selectedMilestone =
-    DEMO_MILESTONES.find((milestone) => milestone.id === selectedMilestoneId) ??
-    DEMO_MILESTONES[0];
-  const projectProgress = calculateProjectProgress(DEMO_MILESTONES, tasks);
-  const projectStatus = calculateProjectStatus(DEMO_MILESTONES, tasks);
-  const experience = calculateExperience(DEMO_MILESTONES, tasks);
+    graph.milestones.find((milestone) => milestone.id === selectedMilestoneId) ??
+    graph.milestones[0];
+  const projectProgress = calculateProjectProgress(graph.milestones, tasks);
+  const projectStatus = calculateProjectStatus(graph.milestones, tasks);
+  const experience = calculateExperience(graph.milestones, tasks);
   const level = calculateLevel(experience);
   const skillSummaries = calculateSkillSummaries(
-    DEMO_PROJECT,
-    DEMO_MILESTONES,
+    graph.project,
+    graph.milestones,
     tasks,
-    DEMO_CHARACTER,
+    DEFAULT_CHARACTER,
   );
-  const aiReady = canAssignToAi(DEMO_PROJECT, DEMO_LOADOUT);
+  const aiReady = canAssignToAi(graph.project, { ...DEFAULT_LOADOUT, projectId: graph.project.id });
   const selectedTasks = useMemo(
-    () => tasks.filter((task) => task.milestoneId === selectedMilestone.id),
-    [selectedMilestone.id, tasks],
+    () => (selectedMilestone ? tasks.filter((task) => task.milestoneId === selectedMilestone.id) : []),
+    [selectedMilestone, tasks],
   );
   const activeCount = activeTaskCount(tasks);
 
-  function updateTaskStatus(taskId: string, status: TaskStatus) {
-    setTasks((current) =>
-      current.map((task) => (task.id === taskId ? { ...task, status } : task)),
-    );
+  async function updateTaskStatus(taskId: string, status: TaskStatus) {
+    const currentTask = tasks.find((task) => task.id === taskId);
+    if (!currentTask || currentTask.status === status) {
+      return;
+    }
+
+    const updatedTask = { ...currentTask, status };
+    setSaveError(null);
+
+    try {
+      await saveTask(updatedTask);
+      setTasks((current) => current.map((task) => (task.id === taskId ? updatedTask : task)));
+    } catch (error: unknown) {
+      setSaveError(readableError(error));
+    }
   }
 
-  function moveTaskForward(task: Task) {
-    updateTaskStatus(task.id, advanceTaskStatus(task.status));
+  async function moveTaskForward(task: Task) {
+    await updateTaskStatus(task.id, advanceTaskStatus(task.status));
   }
 
-  function assignTaskToAi(task: Task) {
+  async function assignTaskToAi(task: Task) {
     if (!aiReady) {
       return;
     }
 
-    setTasks((current) =>
-      current.map((item) =>
-        item.id === task.id ? { ...item, assignee: "ai", status: "doing" } : item,
-      ),
-    );
+    const updatedTask = { ...task, assignee: "ai" as const, status: "doing" as const };
+    setSaveError(null);
+
+    try {
+      await saveTask(updatedTask);
+      setTasks((current) => current.map((item) => (item.id === task.id ? updatedTask : item)));
+    } catch (error: unknown) {
+      setSaveError(readableError(error));
+    }
   }
 
   return (
@@ -637,7 +909,7 @@ function DemoProjectBoard({ onBackToInbox }: DemoProjectBoardProps) {
         <section className="workspace-header" aria-labelledby="workspace-title">
           <div>
             <p className="eyebrow">WORKSPACE</p>
-            <h2 id="workspace-title">{DEMO_WORKSPACE.name}</h2>
+            <h2 id="workspace-title">{graph.workspace.name}</h2>
           </div>
           <span className="workspace-chip">로컬 저장소</span>
         </section>
@@ -648,8 +920,8 @@ function DemoProjectBoard({ onBackToInbox }: DemoProjectBoardProps) {
               ✦
             </div>
             <div>
-              <p className="eyebrow">EXPEDITION 01</p>
-              <h2 id="project-title">{DEMO_PROJECT.name}</h2>
+              <p className="eyebrow">SELECTED EXPEDITION</p>
+              <h2 id="project-title">{graph.project.name}</h2>
             </div>
           </div>
           <div className="project-stats">
@@ -663,6 +935,13 @@ function DemoProjectBoard({ onBackToInbox }: DemoProjectBoardProps) {
           </div>
         </section>
 
+        {saveError && (
+          <div className="action-error" role="alert">
+            <span>{saveError}</span>
+            <button type="button" onClick={() => setSaveError(null)}>닫기</button>
+          </div>
+        )}
+
         <section className="stage-section" aria-labelledby="stage-title">
           <div className="section-heading">
             <div>
@@ -672,80 +951,91 @@ function DemoProjectBoard({ onBackToInbox }: DemoProjectBoardProps) {
             <span className="section-note">앞 스테이지를 통과하면 다음이 열린다</span>
           </div>
 
-          <div className="stage-map" role="list" aria-label="프로젝트 마일스톤">
-            {DEMO_MILESTONES.map((milestone, index) => {
-              const unlocked = isMilestoneUnlocked(milestone.id, DEMO_MILESTONES, tasks);
-              const complete = isMilestoneComplete(milestone.id, tasks);
-              const selected = milestone.id === selectedMilestone.id;
+          {graph.milestones.length > 0 ? (
+            <div className="stage-map" role="list" aria-label="프로젝트 마일스톤">
+              {graph.milestones.map((milestone, index) => {
+                const unlocked = isMilestoneUnlocked(milestone.id, graph.milestones, tasks);
+                const complete = isMilestoneComplete(milestone.id, tasks);
+                const selected = milestone.id === selectedMilestone?.id;
 
-              return (
-                <div className="stage-step" key={milestone.id} role="listitem">
-                  {index > 0 && <span className="stage-connector" aria-hidden="true" />}
-                  <button
-                    className={`stage-node ${selected ? "selected" : ""} ${complete ? "complete" : ""}`}
-                    type="button"
-                    disabled={!unlocked}
-                    aria-current={selected ? "step" : undefined}
-                    aria-label={`${milestone.name}, ${complete ? "완료" : unlocked ? "열림" : "잠김"}`}
-                    onClick={() => setSelectedMilestoneId(milestone.id)}
-                  >
-                    <span className="stage-number">{complete ? "✓" : index + 1}</span>
-                    {!unlocked && <span className="lock-mark" aria-hidden="true">⌑</span>}
-                  </button>
-                  <span className={`stage-label ${selected ? "selected" : ""}`}>
-                    {milestone.name}
-                  </span>
-                  <span className="stage-progress">
-                    {calculateMilestoneProgress(milestone.id, tasks)}%
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="quest-section" aria-labelledby="quest-title">
-          <div className="section-heading quest-heading">
-            <div>
-              <p className="eyebrow">STAGE {selectedMilestone.order}</p>
-              <h2 id="quest-title">{selectedMilestone.name}</h2>
-            </div>
-            <span className="section-note">{selectedTasks.length}개의 퀘스트</span>
-          </div>
-
-          <div className="board" aria-label={`${selectedMilestone.name} 상태 보드`}>
-            {STATUS_COLUMNS.map((column) => {
-              const columnTasks = selectedTasks.filter((task) => task.status === column.status);
-
-              return (
-                <section className={`quest-column ${column.status}`} key={column.status}>
-                  <header className="column-header">
-                    <div>
-                      <h3>{column.label}</h3>
-                      <p>{column.hint}</p>
-                    </div>
-                    <span className="column-count">{columnTasks.length}</span>
-                  </header>
-                  <div className="column-cards">
-                    {columnTasks.length === 0 ? (
-                      <p className="empty-column">이 칸은 비어 있다</p>
-                    ) : (
-                      columnTasks.map((task) => (
-                        <TaskCard
-                          key={task.id}
-                          task={task}
-                          aiReady={aiReady}
-                          onAdvance={() => moveTaskForward(task)}
-                          onAssignAi={() => assignTaskToAi(task)}
-                        />
-                      ))
-                    )}
+                return (
+                  <div className="stage-step" key={milestone.id} role="listitem">
+                    {index > 0 && <span className="stage-connector" aria-hidden="true" />}
+                    <button
+                      className={`stage-node ${selected ? "selected" : ""} ${complete ? "complete" : ""}`}
+                      type="button"
+                      disabled={!unlocked}
+                      aria-current={selected ? "step" : undefined}
+                      aria-label={`${milestone.name}, ${complete ? "완료" : unlocked ? "열림" : "잠김"}`}
+                      onClick={() => setSelectedMilestoneId(milestone.id)}
+                    >
+                      <span className="stage-number">{complete ? "✓" : index + 1}</span>
+                      {!unlocked && <span className="lock-mark" aria-hidden="true">⌑</span>}
+                    </button>
+                    <span className={`stage-label ${selected ? "selected" : ""}`}>
+                      {milestone.name}
+                    </span>
+                    <span className="stage-progress">
+                      {calculateMilestoneProgress(milestone.id, tasks)}%
+                    </span>
                   </div>
-                </section>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <section className="state-panel compact-state" aria-label="스테이지 없음">
+              <span className="state-mark" aria-hidden="true">＋</span>
+              <p className="eyebrow">NO STAGES YET</p>
+              <h2>아직 스테이지가 없습니다</h2>
+              <p>이 프로젝트에는 아직 원정 경로가 만들어지지 않았습니다.</p>
+            </section>
+          )}
         </section>
+
+        {selectedMilestone ? (
+          <section className="quest-section" aria-labelledby="quest-title">
+            <div className="section-heading quest-heading">
+              <div>
+                <p className="eyebrow">STAGE {selectedMilestone.order}</p>
+                <h2 id="quest-title">{selectedMilestone.name}</h2>
+              </div>
+              <span className="section-note">{selectedTasks.length}개의 퀘스트</span>
+            </div>
+
+            <div className="board" aria-label={`${selectedMilestone.name} 상태 보드`}>
+              {STATUS_COLUMNS.map((column) => {
+                const columnTasks = selectedTasks.filter((task) => task.status === column.status);
+
+                return (
+                  <section className={`quest-column ${column.status}`} key={column.status}>
+                    <header className="column-header">
+                      <div>
+                        <h3>{column.label}</h3>
+                        <p>{column.hint}</p>
+                      </div>
+                      <span className="column-count">{columnTasks.length}</span>
+                    </header>
+                    <div className="column-cards">
+                      {columnTasks.length === 0 ? (
+                        <p className="empty-column">이 칸은 비어 있다</p>
+                      ) : (
+                        columnTasks.map((task) => (
+                          <TaskCard
+                            key={task.id}
+                            task={task}
+                            aiReady={aiReady}
+                            onAdvance={() => moveTaskForward(task)}
+                            onAssignAi={() => assignTaskToAi(task)}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         <section className="character-sheet" aria-labelledby="character-title">
           <div className="section-heading">
@@ -757,14 +1047,14 @@ function DemoProjectBoard({ onBackToInbox }: DemoProjectBoardProps) {
           </div>
 
           <div className="character-summary">
-            <div className="sprite" aria-label={`${DEMO_CHARACTER.job} 도트 캐릭터`} role="img">
+            <div className="sprite" aria-label={`${DEFAULT_CHARACTER.job} 도트 캐릭터`} role="img">
               <span aria-hidden="true">●</span>
               <span aria-hidden="true">╱▌╲</span>
               <span aria-hidden="true">╱ ╲</span>
             </div>
             <div className="character-copy">
               <div className="character-name-row">
-                <h3>{DEMO_CHARACTER.name}</h3>
+                <h3>{DEFAULT_CHARACTER.name}</h3>
                 <span className="job-badge">개발자</span>
               </div>
               <p>Lv. {level} 원정대원</p>
@@ -806,14 +1096,14 @@ function DemoProjectBoard({ onBackToInbox }: DemoProjectBoardProps) {
               </div>
               <EquipmentSlot
                 label="에이전트"
-                value={DEMO_LOADOUT.agentTool ?? "비어 있음"}
+                value={DEFAULT_LOADOUT.agentTool ?? "비어 있음"}
                 ready={aiReady}
-                detail={DEMO_PROJECT.repoPath ? "실행 준비됨" : "repoPath 연결 대기"}
+                detail={graph.project.repoPath ? "실행 준비됨" : "repoPath 연결 대기"}
               />
               <EquipmentSlot
                 label="소스"
-                value={DEMO_LOADOUT.sourceTool ?? "비어 있음"}
-                ready={Boolean(DEMO_LOADOUT.sourceTool)}
+                value={DEFAULT_LOADOUT.sourceTool ?? "비어 있음"}
+                ready={Boolean(DEFAULT_LOADOUT.sourceTool)}
                 detail="가져오기 어댑터"
               />
             </div>
@@ -839,8 +1129,8 @@ function DemoProjectBoard({ onBackToInbox }: DemoProjectBoardProps) {
 interface TaskCardProps {
   task: Task;
   aiReady: boolean;
-  onAdvance: () => void;
-  onAssignAi: () => void;
+  onAdvance: () => void | Promise<void>;
+  onAssignAi: () => void | Promise<void>;
 }
 
 function TaskCard({ task, aiReady, onAdvance, onAssignAi }: TaskCardProps) {
@@ -863,7 +1153,7 @@ function TaskCard({ task, aiReady, onAdvance, onAssignAi }: TaskCardProps) {
       </div>
       <div className="card-actions">
         {task.status !== "done" && (
-          <button className="advance-button" type="button" onClick={onAdvance}>
+          <button className="advance-button" type="button" onClick={() => void onAdvance()}>
             다음: {nextLabel}
           </button>
         )}
@@ -873,7 +1163,7 @@ function TaskCard({ task, aiReady, onAdvance, onAssignAi }: TaskCardProps) {
             type="button"
             disabled={!aiReady || task.assignee === "ai"}
             title={aiReady ? "Claude에게 작업을 맡깁니다" : "프로젝트 repoPath를 먼저 연결하세요"}
-            onClick={onAssignAi}
+            onClick={() => void onAssignAi()}
           >
             {task.assignee === "ai" ? "실행 중" : "AI에게 맡기기"}
           </button>
