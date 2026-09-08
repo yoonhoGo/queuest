@@ -42,6 +42,8 @@ npm run tauri -- dev
 npm run check
 ```
 
+기능 구현 순서는 [ROADMAP.md](./ROADMAP.md)에 기록되어 있습니다.
+
 ## 범위 메모
 
 - 엔티티 ID는 UUID 문자열을 사용합니다.
