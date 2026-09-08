@@ -6,6 +6,12 @@
 
 현재 레포는 `Tauri 2 + React + TypeScript + SQLite` 기반의 MVP 골격입니다. UI의 데모 데이터는 아직 저장소에 연결하지 않았고, 도메인 규칙과 외부 경계부터 분리해 두었습니다.
 
+## 미리보기
+
+macOS 메뉴바에서 Queuest 아이콘을 클릭하면 열리는 게임형 퀘스트 팝오버입니다.
+
+![Queuest macOS 메뉴바 팝오버 미리보기](./docs/images/queuest-menu-preview.png)
+
 ## 구조
 
 ```text
