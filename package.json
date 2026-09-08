@@ -1,0 +1,21 @@
+{
+  "name": "queuest",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Life is a queue of quests.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @queuest/desktop",
+    "build": "npm run build --workspace @queuest/desktop",
+    "check": "npm run typecheck --workspaces --if-present && npm run build --workspace @queuest/desktop",
+    "test": "npm run test --workspaces --if-present",
+    "tauri": "npm run tauri --workspace @queuest/desktop --"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "npm@11.6.0"
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@queuest/adapter-sqlite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@queuest/domain": "0.1.0",
+    "@queuest/ports": "0.1.0",
+    "@tauri-apps/plugin-sql": "^2"
+  }
+}

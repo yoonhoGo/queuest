@@ -1,0 +1,264 @@
+import Database from "@tauri-apps/plugin-sql";
+import type {
+  EntityId,
+  Milestone,
+  Project,
+  ProjectGraph,
+  Task,
+  Workspace,
+} from "@queuest/domain";
+import type { TaskRepository } from "@queuest/ports";
+
+export const DATABASE_PATH = "sqlite:queuest.db";
+
+export const SCHEMA_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    repo_path TEXT,
+    skills TEXT NOT NULL DEFAULT '[]'
+  )`,
+  `CREATE TABLE IF NOT EXISTS milestones (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    milestone_order INTEGER NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    milestone_id TEXT NOT NULL REFERENCES milestones(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK (status IN ('todo', 'doing', 'review', 'done')),
+    assignee TEXT NOT NULL CHECK (assignee IN ('human', 'ai')),
+    skills TEXT NOT NULL DEFAULT '[]',
+    blocked INTEGER NOT NULL DEFAULT 0,
+    external_ref TEXT
+  )`,
+  `CREATE TABLE IF NOT EXISTS task_comments (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    author TEXT NOT NULL CHECK (author IN ('human', 'ai')),
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS characters (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    name TEXT NOT NULL,
+    job TEXT NOT NULL CHECK (job IN ('developer', 'planner', 'designer')),
+    sprite_id TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS loadouts (
+    project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    agent_tool TEXT,
+    source_tool TEXT
+  )`,
+  "CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id)",
+  "CREATE INDEX IF NOT EXISTS idx_milestones_project_id ON milestones(project_id)",
+  "CREATE INDEX IF NOT EXISTS idx_tasks_milestone_id ON tasks(milestone_id)",
+];
+
+interface WorkspaceRow {
+  id: string;
+  name: string;
+}
+
+interface ProjectRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  repo_path: string | null;
+  skills: string;
+}
+
+interface MilestoneRow {
+  id: string;
+  project_id: string;
+  name: string;
+  milestone_order: number;
+}
+
+interface TaskRow {
+  id: string;
+  milestone_id: string;
+  title: string;
+  body: string;
+  status: Task["status"];
+  assignee: Task["assignee"];
+  skills: string;
+  blocked: number | boolean;
+  external_ref: string | null;
+}
+
+function readSkills(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) && parsed.every((item) => typeof item === "string")
+      ? parsed
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function toTask(row: TaskRow): Task {
+  return {
+    id: row.id,
+    milestoneId: row.milestone_id,
+    title: row.title,
+    body: row.body,
+    status: row.status,
+    assignee: row.assignee,
+    skills: readSkills(row.skills),
+    blocked: Boolean(row.blocked),
+    ...(row.external_ref ? { externalRef: row.external_ref } : {}),
+  };
+}
+
+export class SqliteTaskRepository implements TaskRepository {
+  public constructor(private readonly database: Database) {}
+
+  public async initialize(): Promise<void> {
+    for (const statement of SCHEMA_STATEMENTS) {
+      await this.database.execute(statement);
+    }
+  }
+
+  public async listProjectGraphs(): Promise<ProjectGraph[]> {
+    const [workspaceRows, projectRows, milestoneRows, taskRows] = await Promise.all([
+      this.database.select<WorkspaceRow[]>("SELECT id, name FROM workspaces ORDER BY name"),
+      this.database.select<ProjectRow[]>(
+        "SELECT id, workspace_id, name, repo_path, skills FROM projects ORDER BY name",
+      ),
+      this.database.select<MilestoneRow[]>(
+        "SELECT id, project_id, name, milestone_order FROM milestones ORDER BY milestone_order",
+      ),
+      this.database.select<TaskRow[]>(
+        "SELECT id, milestone_id, title, body, status, assignee, skills, blocked, external_ref FROM tasks ORDER BY title",
+      ),
+    ]);
+
+    const workspaces = new Map<EntityId, Workspace>(
+      workspaceRows.map((row) => [row.id, { id: row.id, name: row.name }]),
+    );
+    const tasks = taskRows.map(toTask);
+
+    return projectRows.flatMap((row) => {
+      const workspace = workspaces.get(row.workspace_id);
+      if (!workspace) {
+        return [];
+      }
+
+      const project: Project = {
+        id: row.id,
+        workspaceId: row.workspace_id,
+        name: row.name,
+        ...(row.repo_path ? { repoPath: row.repo_path } : {}),
+        skills: readSkills(row.skills),
+      };
+      const milestones: Milestone[] = milestoneRows
+        .filter((milestone) => milestone.project_id === project.id)
+        .map((milestone) => ({
+          id: milestone.id,
+          projectId: milestone.project_id,
+          name: milestone.name,
+          order: milestone.milestone_order,
+        }));
+      const milestoneIds = new Set(milestones.map((milestone) => milestone.id));
+
+      return [
+        {
+          workspace,
+          project,
+          milestones,
+          tasks: tasks.filter((task) => milestoneIds.has(task.milestoneId)),
+        },
+      ];
+    });
+  }
+
+  public async saveWorkspace(workspace: Workspace): Promise<void> {
+    await this.database.execute(
+      `INSERT INTO workspaces (id, name) VALUES ($1, $2)
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name`,
+      [workspace.id, workspace.name],
+    );
+  }
+
+  public async saveProject(project: Project): Promise<void> {
+    await this.database.execute(
+      `INSERT INTO projects (id, workspace_id, name, repo_path, skills)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT(id) DO UPDATE SET
+         workspace_id = excluded.workspace_id,
+         name = excluded.name,
+         repo_path = excluded.repo_path,
+         skills = excluded.skills`,
+      [
+        project.id,
+        project.workspaceId,
+        project.name,
+        project.repoPath ?? null,
+        JSON.stringify(project.skills),
+      ],
+    );
+  }
+
+  public async saveMilestone(milestone: Milestone): Promise<void> {
+    await this.database.execute(
+      `INSERT INTO milestones (id, project_id, name, milestone_order)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT(id) DO UPDATE SET
+         project_id = excluded.project_id,
+         name = excluded.name,
+         milestone_order = excluded.milestone_order`,
+      [milestone.id, milestone.projectId, milestone.name, milestone.order],
+    );
+  }
+
+  public async saveTask(task: Task): Promise<void> {
+    await this.database.execute(
+      `INSERT INTO tasks
+         (id, milestone_id, title, body, status, assignee, skills, blocked, external_ref)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT(id) DO UPDATE SET
+         milestone_id = excluded.milestone_id,
+         title = excluded.title,
+         body = excluded.body,
+         status = excluded.status,
+         assignee = excluded.assignee,
+         skills = excluded.skills,
+         blocked = excluded.blocked,
+         external_ref = excluded.external_ref`,
+      [
+        task.id,
+        task.milestoneId,
+        task.title,
+        task.body,
+        task.status,
+        task.assignee,
+        JSON.stringify(task.skills),
+        task.blocked ? 1 : 0,
+        task.externalRef ?? null,
+      ],
+    );
+  }
+
+  public async deleteTask(taskId: EntityId): Promise<void> {
+    await this.database.execute("DELETE FROM tasks WHERE id = $1", [taskId]);
+  }
+}
+
+export async function createSqliteTaskRepository(
+  path = DATABASE_PATH,
+): Promise<SqliteTaskRepository> {
+  const database = await Database.load(path);
+  const repository = new SqliteTaskRepository(database);
+  await repository.initialize();
+  return repository;
+}
