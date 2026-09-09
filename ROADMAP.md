@@ -103,7 +103,7 @@ Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일�
 - [ ] GitHub API 플러그인
 - [ ] Jira API 플러그인
 - [ ] Calendar API 플러그인
-- [ ] Plugin Manager의 발견·검증·설치·활성화·비활성화
+- [x] Plugin Manager의 발견·검증·설치·활성화·비활성화
 - [ ] 권한 브로커와 Keychain 연결 저장소
 - [ ] 플러그인 설정 JSON Schema 기반 화면
 - [ ] 플러그인 프로세스 타임아웃·취소·로그 경계

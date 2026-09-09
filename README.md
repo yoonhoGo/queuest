@@ -20,6 +20,7 @@ packages/domain           순수 도메인 모델과 계산 규칙
 packages/ports            저장소·에이전트 포트
 packages/plugin-contracts 외부 플러그인 manifest·프로토콜·정규화 타입
 packages/plugin-sdk       외부 프로세스 플러그인용 JSON 프로토콜 SDK
+packages/plugin-manager  플러그인 발견·검증·수명주기·stdio 전송 런타임
 packages/adapter-sqlite   Tauri SQL 기반 로컬 SQLite 어댑터
 packages/adapter-claude   claude -p 실행 어댑터
 packages/adapter-github   기존 GitHub 경계 어댑터 (플러그인 전환 예정)
