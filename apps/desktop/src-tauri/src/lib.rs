@@ -8,10 +8,12 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_os = "macos"))]
+use tauri::PhysicalPosition;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, PhysicalPosition, State, WebviewWindow, WindowEvent,
+    Manager, State, WebviewWindow, WindowEvent,
 };
 
 #[derive(Default)]
@@ -63,35 +65,111 @@ struct ToolDiscovery {
     jj: ToolInfo,
 }
 
-fn position_main_window(window: &WebviewWindow, anchor: PhysicalPosition<f64>) {
-    let size = window
-        .outer_size()
-        .unwrap_or_else(|_| tauri::PhysicalSize::new(420, 640));
-    let (work_area_left, work_area_right) = window
-        .monitor_from_point(anchor.x, anchor.y)
-        .ok()
-        .flatten()
-        .map(|monitor| {
-            let work_area = monitor.work_area();
-            let left = f64::from(work_area.position.x);
-            (left, left + f64::from(work_area.size.width))
-        })
-        .unwrap_or((0.0, f64::from(size.width)));
-    let max_x = (work_area_right - f64::from(size.width)).max(work_area_left);
-    let x = (anchor.x - f64::from(size.width) / 2.0)
-        .clamp(work_area_left, max_x)
-        .round() as i32;
-    let y = (anchor.y + 8.0).round() as i32;
-    let _ = window.set_position(PhysicalPosition::new(x, y));
+#[cfg(target_os = "macos")]
+mod popover;
+
+#[cfg(target_os = "macos")]
+fn position_main_window(window: &WebviewWindow, _rect: tauri::Rect) -> Result<(), String> {
+    popover::position(window)
 }
 
-fn toggle_main_window(app: &tauri::AppHandle, anchor: Option<PhysicalPosition<f64>>) {
+#[cfg(not(target_os = "macos"))]
+fn position_main_window(window: &WebviewWindow, rect: tauri::Rect) -> Result<(), String> {
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let origin = rect.position.to_physical::<f64>(scale);
+    let icon_size = rect.size.to_physical::<f64>(scale);
+    let anchor = PhysicalPosition::new(
+        origin.x + icon_size.width / 2.0,
+        origin.y + icon_size.height,
+    );
+    let monitor = window.monitor_from_point(anchor.x, origin.y).ok().flatten();
+    let scale = monitor
+        .as_ref()
+        .map(|monitor| monitor.scale_factor())
+        .unwrap_or(scale);
+    let width = (420.0 * scale).round();
+    let (work_area_left, work_area_right) = if let Some(monitor) = monitor {
+        let area = monitor.work_area();
+        let left = f64::from(area.position.x);
+        let available_height =
+            f64::from(area.position.y) + f64::from(area.size.height) - anchor.y - 6.0 * scale;
+        // Short displays still keep navigation visible; the content scrolls inside.
+        let height = (640.0 * scale).min(available_height).max(320.0 * scale);
+        let _ = window.set_size(tauri::PhysicalSize::new(
+            width as u32,
+            height.round() as u32,
+        ));
+        (left, left + f64::from(area.size.width))
+    } else {
+        (0.0, width)
+    };
+    let position = popover_position(anchor, width, work_area_left, work_area_right, scale);
+    window
+        .set_position(position)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn popover_position(
+    anchor: PhysicalPosition<f64>,
+    width: f64,
+    left: f64,
+    right: f64,
+    scale: f64,
+) -> PhysicalPosition<i32> {
+    let max_x = (right - width).max(left);
+    PhysicalPosition::new(
+        (anchor.x - width / 2.0).clamp(left, max_x).round() as i32,
+        (anchor.y + 6.0 * scale).round() as i32,
+    )
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod popover_tests {
+    use super::*;
+
+    #[test]
+    fn centers_below_icon_with_retina_gap() {
+        assert_eq!(
+            popover_position(PhysicalPosition::new(1400.0, 48.0), 840.0, 0.0, 2880.0, 2.0),
+            PhysicalPosition::new(980, 60)
+        );
+    }
+
+    #[test]
+    fn clamps_at_both_edges_and_supports_negative_monitor_coordinates() {
+        assert_eq!(
+            popover_position(PhysicalPosition::new(30.0, 24.0), 420.0, 0.0, 1440.0, 1.0).x,
+            0
+        );
+        assert_eq!(
+            popover_position(PhysicalPosition::new(1430.0, 24.0), 420.0, 0.0, 1440.0, 1.0).x,
+            1020
+        );
+        assert_eq!(
+            popover_position(PhysicalPosition::new(-20.0, 24.0), 420.0, -1440.0, 0.0, 1.0).x,
+            -420
+        );
+    }
+}
+
+fn toggle_main_window(app: &tauri::AppHandle, anchor: Option<tauri::Rect>) {
     if let Some(window) = app.get_webview_window("main") {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
         } else {
+            let anchor = anchor.or_else(|| {
+                app.tray_by_id("queuest")
+                    .and_then(|tray| tray.rect().ok().flatten())
+            });
             if let Some(anchor) = anchor {
-                position_main_window(&window, anchor);
+                if let Err(error) = position_main_window(&window, anchor) {
+                    eprintln!("Queuest 팝오버 위치 설정 실패: {error}");
+                    return;
+                }
+            } else {
+                eprintln!("Queuest 메뉴바 아이콘 위치를 읽지 못했습니다.");
+                return;
             }
             let _ = window.unminimize();
             let _ = window.show();
@@ -163,12 +241,14 @@ fn discover_tool(id: &str, check_authentication: bool) -> ToolInfo {
 }
 
 #[tauri::command]
-fn discover_tools() -> ToolDiscovery {
-    ToolDiscovery {
+async fn discover_tools() -> Result<ToolDiscovery, String> {
+    tauri::async_runtime::spawn_blocking(|| ToolDiscovery {
         claude: discover_tool("claude", false),
         gh: discover_tool("gh", true),
         jj: discover_tool("jj", false),
-    }
+    })
+    .await
+    .map_err(|error| format!("도구를 확인하지 못했습니다: {error}"))
 }
 
 fn wait_for_agent(child: Arc<Mutex<Child>>) -> Result<AgentRunResult, String> {
@@ -364,7 +444,7 @@ pub fn run() {
             let quit = MenuItemBuilder::with_id("quit", "종료").build(app)?;
             let menu = MenuBuilder::new(app).items(&[&toggle, &quit]).build()?;
 
-            TrayIconBuilder::new()
+            TrayIconBuilder::with_id("queuest")
                 .icon(app.default_window_icon().unwrap().clone())
                 .icon_as_template(true)
                 .title("Q")
@@ -378,11 +458,11 @@ pub fn run() {
                 })
                 .on_tray_icon_event(|tray, event| match event {
                     TrayIconEvent::Click {
-                        position,
+                        rect,
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
-                    } => toggle_main_window(&tray.app_handle(), Some(position)),
+                    } => toggle_main_window(&tray.app_handle(), Some(rect)),
                     _ => {}
                 })
                 .build(app)?;

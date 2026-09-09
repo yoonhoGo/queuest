@@ -46,6 +46,7 @@ import {
   graphForProject,
   loadProjectGraphs,
   loadWorkspaces,
+  loadCharacter,
   saveCharacter,
   saveLoadout,
   saveTask,
@@ -95,13 +96,14 @@ const SPRITE_ART: Record<Character["job"], readonly string[]> = {
   designer: ["✦", "╱▌╲", "╱ ╲"],
 };
 
-type AppView = "inbox" | "project-picker" | "project";
+type AppView = "inbox" | "project-picker" | "project" | "character" | "plugins";
 type ProjectLoadState = "idle" | "loading" | "ready" | "error";
 type WorkspaceMutation = "create" | "update" | "delete" | null;
 
 function App() {
   const [view, setView] = useState<AppView>("inbox");
   const viewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const contentRef = useRef<HTMLElement>(null);
   const previousViewRef = useRef<AppView>(view);
   const [todos, setTodos] = useState<InboxTodo[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -122,6 +124,7 @@ function App() {
     }
 
     previousViewRef.current = view;
+    contentRef.current?.scrollTo(0, 0);
     if (view !== "project") {
       viewHeadingRef.current?.focus();
     }
@@ -388,6 +391,7 @@ function App() {
         onTogglePinned={() => void togglePinned()}
         onBackToInbox={backToInbox}
         onProjectDeleted={backToProjectPicker}
+        windowError={actionError}
       />
     );
   }
@@ -400,8 +404,9 @@ function App() {
         onTogglePinned={() => void togglePinned()}
         onOpenProject={openProjectPicker}
       />
-      <main className="main-content">
-        {view === "project-picker" ? (
+      <AppNavigation active={view} onNavigate={(next) => next === "project" ? openProjectPicker() : setView(next)} />
+      <main className="main-content" ref={contentRef}>
+        {view === "character" ? <CharacterHome /> : view === "plugins" ? <PluginsPanel /> : view === "project-picker" ? (
           <ProjectPicker
             headingRef={viewHeadingRef}
             onBack={() => setView("inbox")}
@@ -450,11 +455,99 @@ function App() {
 }
 
 function readableError(error: unknown): string {
+  if (typeof error === "string" && error.trim()) return error;
   if (error instanceof Error && error.message.trim()) {
     return error.message;
   }
 
   return "로컬 저장소와 통신하지 못했습니다. 잠시 후 다시 시도하세요.";
+}
+
+function AppNavigation({ active, onNavigate }: {
+  active: AppView;
+  onNavigate: (view: "inbox" | "project" | "character" | "plugins") => void;
+}) {
+  return (
+    <nav className="app-navigation" aria-label="주요 화면">
+      {([['inbox', '할 일'], ['project', '프로젝트'], ['character', '캐릭터'], ['plugins', '플러그인']] as const).map(([id, label]) => (
+        <button type="button" key={id}
+          aria-current={active === id || (id === "project" && active === "project-picker") ? "page" : undefined}
+          onClick={() => onNavigate(id)}>{label}</button>
+      ))}
+    </nav>
+  );
+}
+
+function CharacterHome() {
+  const [character, setCharacter] = useState<Character | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    loadCharacter().then((value) => {
+      if (!cancelled) { setCharacter(value ?? DEFAULT_CHARACTER); setError(null); }
+    }).catch((reason: unknown) => { if (!cancelled) setError(readableError(reason)); });
+    return () => { cancelled = true; };
+  }, [reload]);
+  return <section className="character-home" aria-labelledby="profile-title">
+    <p className="eyebrow">MY CHARACTER</p>
+    <h2 id="profile-title">나의 캐릭터</h2>
+    <p className="page-description">이름과 직업을 설정하세요. 경험치와 장비는 각 프로젝트의 캐릭터 화면에서 확인할 수 있습니다.</p>
+    {error && <div className="action-error" role="alert">{error}<button type="button" onClick={() => setReload((value) => value + 1)}>다시 불러오기</button></div>}
+    {!character && !error && <p role="status">캐릭터를 불러오는 중…</p>}
+    {character && <>
+      <div className="character-summary"><CharacterSprite character={character} /><div><h3>{character.name}</h3><p>{JOB_LABEL[character.job]}</p></div></div>
+      {editing ? <CharacterSettingsPanel character={character} submitting={saving} onClose={() => setEditing(false)} onSubmit={async (next) => {
+        setSaving(true); setError(null);
+        try { await saveCharacter(next); setCharacter(next); setEditing(false); return true; }
+        catch (reason: unknown) { setError(readableError(reason)); return false; }
+        finally { setSaving(false); }
+      }} /> : <button className="primary-button" type="button" onClick={() => setEditing(true)}>캐릭터 편집</button>}
+    </>}
+  </section>;
+}
+
+const CONNECTORS = [
+  { name: "GitHub", description: "저장소의 이슈와 작업을 확인합니다." },
+  { name: "Jira", description: "Jira Cloud 이슈를 확인합니다." },
+  { name: "Google Calendar", description: "캘린더와 일정을 확인합니다." },
+  { name: "Apple Calendar", description: "Mac의 캘린더 일정을 확인합니다." },
+  { name: "Apple Reminders", description: "Mac의 미리 알림을 확인합니다." },
+];
+
+function PluginsPanel() {
+  const [tools, setTools] = useState<ToolDiscovery | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setScanning(true); setError(null);
+    discoverTools().then((value) => { if (!cancelled) setTools(value); })
+      .catch((reason: unknown) => { if (!cancelled) setError(readableError(reason)); })
+      .finally(() => { if (!cancelled) setScanning(false); });
+    return () => { cancelled = true; };
+  }, [reload]);
+  return <section aria-labelledby="plugins-title">
+    <p className="eyebrow">CONNECTIONS & TOOLS</p>
+    <h2 id="plugins-title">플러그인과 도구</h2>
+    <p className="page-description">외부 서비스와 로컬 도구를 한곳에서 확인하세요.</p>
+    <div className="section-heading"><h3>로컬 도구</h3><button className="small-button" type="button" disabled={scanning} onClick={() => setReload((value) => value + 1)}>{scanning ? "확인 중…" : "다시 확인"}</button></div>
+    {error && <p className="action-error" role="alert">{error}</p>}
+    {scanning && <p role="status">설치 및 인증 상태를 확인하는 중…</p>}
+    {tools && <div className="plugin-list">{([tools.claude, tools.gh, tools.jj]).map((tool) => <article className="plugin-card" key={tool.id}>
+      <div className="section-heading"><h3>{tool.id}</h3><span className={`tool-tag ${tool.installed && tool.authenticated !== false ? "equipped" : "warning"}`}>{toolStatusLabel(tool)}</span></div>
+      <p>{tool.id === "claude" ? "프로젝트의 AI 작업 실행 도구" : tool.id === "gh" ? "GitHub 이슈 가져오기 도구" : "로컬 버전 관리 도구"}</p>
+      {tool.path && <code>{tool.path}</code>}
+    </article>)}</div>}
+    <h3>서비스 플러그인</h3>
+    <p className="page-description">커넥터는 구현되어 있으며, 앱에서 연결·권한을 설정하는 기능은 준비 중입니다.</p>
+    <div className="plugin-list">{CONNECTORS.map((connector) => <article className="plugin-card" key={connector.name}>
+      <div className="section-heading"><h3>{connector.name}</h3><span className="tool-tag muted">앱 연결 준비 중</span></div><p>{connector.description}</p>
+    </article>)}</div>
+  </section>;
 }
 
 function compareTodos(left: InboxTodo, right: InboxTodo): number {
@@ -500,7 +593,7 @@ function AppHeader({ todoCount, pinned, onTogglePinned, onOpenProject }: AppHead
           title={pinned ? "팝오버 고정 해제" : "포커스를 잃어도 팝오버 유지"}
           onClick={onTogglePinned}
         >
-          {pinned ? "📌" : "·"}
+          {pinned ? "고정됨" : "고정"}
         </button>
         <button className="topbar-project-button" type="button" onClick={onOpenProject}>
           프로젝트
@@ -1827,6 +1920,7 @@ function ConfirmDialog({
 }
 
 interface ProjectBoardProps {
+  windowError: string | null;
   graph: ProjectGraph;
   pinned: boolean;
   onTogglePinned: () => void;
@@ -1834,7 +1928,10 @@ interface ProjectBoardProps {
   onProjectDeleted: () => void;
 }
 
-function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectDeleted }: ProjectBoardProps) {
+function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectDeleted, windowError }: ProjectBoardProps) {
+  const [section, setSection] = useState<"project" | "character" | "plugins">("project");
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [section]);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [project, setProject] = useState<Project>(graph.project);
   const [milestones, setMilestones] = useState<Milestone[]>(() =>
@@ -2242,7 +2339,7 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
             title={pinned ? "팝오버 고정 해제" : "포커스를 잃어도 팝오버 유지"}
             onClick={onTogglePinned}
           >
-            {pinned ? "📌" : "·"}
+            {pinned ? "고정됨" : "고정"}
           </button>
           <button className="topbar-project-button" type="button" onClick={onBackToInbox}>
             인박스
@@ -2251,14 +2348,18 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
             className="icon-button"
             type="button"
             aria-label="프로젝트 설정"
-            onClick={() => setShowProjectSettings(true)}
+            onClick={() => { setSection("project"); setShowProjectSettings(true); }}
           >
             ⚙
           </button>
         </div>
       </header>
 
-      <main className="main-content">
+      <AppNavigation active={section} onNavigate={(next) => next === "inbox" ? onBackToInbox() : setSection(next)} />
+      <main className="main-content" ref={mainRef}>
+        {windowError && <p className="action-error" role="alert">{windowError}</p>}
+        {section === "plugins" && <PluginsPanel />}
+        <div hidden={section !== "project"}>
         <section className="workspace-header" aria-labelledby="workspace-title">
           <div>
             <p className="eyebrow">WORKSPACE</p>
@@ -2503,14 +2604,15 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
           />
         )}
 
-        <section className="character-sheet" aria-labelledby="character-title">
+        </div>
+        <section hidden={section !== "character"} className="character-sheet" aria-labelledby="character-title">
           <div className="section-heading">
             <div>
               <p className="eyebrow">CHARACTER SHEET</p>
               <h2 id="character-title">나의 캐릭터</h2>
             </div>
             <div className="quest-heading-actions">
-              <span className="sheet-rule">계산되는 뷰</span>
+              <span className="sheet-rule">{project.name}</span>
               <button
                 className="small-button"
                 type="button"
@@ -2633,7 +2735,7 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
           />
         </section>
 
-        <p className="prototype-note">
+        <p hidden={section !== "project"} className="prototype-note">
           프로젝트를 명시적으로 선택한 뒤 열리는 원정 보드입니다. 퀘스트·스테이지·프로젝트 설정은 로컬 SQLite에 저장됩니다.
         </p>
       </main>

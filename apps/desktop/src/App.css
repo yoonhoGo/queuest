@@ -51,10 +51,14 @@ button:focus-visible {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .topbar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -185,10 +189,60 @@ h3 {
 }
 
 .main-content {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   max-width: 980px;
   margin: 0 auto;
   padding: 19px 18px 28px;
 }
+
+[hidden] { display: none !important; }
+
+.app-navigation {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--paper-deep);
+  background: var(--paper-cream);
+}
+
+.app-navigation button {
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-navigation button:hover { background: var(--paper-deep); }
+.app-navigation button[aria-current="page"] {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--gold);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.page-description {
+  margin: 12px 0 18px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.plugin-list { display: grid; gap: 10px; margin-bottom: 24px; }
+.plugin-card { padding: 14px; border: 1px solid var(--paper-deep); border-radius: 8px; background: var(--paper-bright); }
+.plugin-card .section-heading { margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
+.plugin-card p { margin-bottom: 6px; font-size: 12px; line-height: 1.5; color: var(--ink-soft); }
+.plugin-card code { font-size: 11px; overflow-wrap: anywhere; }
+.character-home .character-summary { margin: 22px 0; }
 
 .workspace-header,
 .section-heading,
@@ -1910,4 +1964,33 @@ h3 {
     padding-right: 26px;
     padding-left: 26px;
   }
+}
+
+/* Menu-bar controls must remain readable and reachable at 420 logical pixels. */
+.pin-button { width: auto; min-width: 48px; padding: 0 8px; border-radius: 6px; font-size: 11px; }
+.topbar .eyebrow { display: none; }
+.small-button, .row-action, .advance-button, .danger-button,
+.topbar-project-button, .primary-button, .secondary-button {
+  min-height: 34px;
+  font-size: 12px;
+}
+.editor-panel input, .editor-panel textarea, .editor-panel select,
+.todo-form input { min-height: 38px; font-size: 13px; }
+.editor-panel label, .section-note, .sheet-rule, .tool-tag,
+.equipment-label, .equipment-slot small, .inventory-note { font-size: 11px; }
+.todo-title, .quest-card h4 { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.quest-card > p, .column-header p, .inbox-lede { font-size: 12px; line-height: 1.6; }
+.stage-actions, .quest-heading-actions { flex-wrap: wrap; }
+.character-name-row, .project-heading { min-width: 0; }
+.character-name-row h3, .project-heading h2 { overflow-wrap: anywhere; }
+.confirm-dialog { max-height: calc(100dvh - 36px); overflow-y: auto; }
+@media (max-width: 560px) {
+  .board { grid-template-columns: minmax(0, 1fr); overflow: visible; }
+  .quest-column { min-height: 0; }
+  .column-header p { max-width: none; }
+  .sheet-grid { grid-template-columns: minmax(0, 1fr); }
+  .section-heading { gap: 8px; flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
