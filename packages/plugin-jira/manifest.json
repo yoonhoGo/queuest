@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "com.queuest.jira",
+  "name": "Jira Cloud",
+  "version": "0.1.0",
+  "hostApi": "^1.0.0",
+  "entry": {
+    "type": "process",
+    "command": "node",
+    "args": ["--experimental-strip-types", "bin/queuest-jira.mjs"]
+  },
+  "capabilities": ["source.work-items"],
+  "permissions": {
+    "network": ["*.atlassian.net"],
+    "secrets": ["jira"]
+  },
+  "configSchema": {}
+}
