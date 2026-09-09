@@ -23,6 +23,7 @@ packages/plugin-sdk       외부 프로세스 플러그인용 JSON 프로토콜 
 packages/plugin-manager  플러그인 발견·검증·수명주기·stdio 전송 런타임
 packages/plugin-permissions 권한 정규화·승인 브로커·Credential Store 경계
 packages/plugin-github   GitHub API 읽기 전용 process connector
+packages/plugin-jira     Jira Cloud API 읽기 전용 process connector
 packages/adapter-sqlite   Tauri SQL 기반 로컬 SQLite 어댑터
 packages/adapter-claude   claude -p 실행 어댑터
 packages/adapter-github   기존 GitHub 경계 어댑터 (UI 흐름 전환 예정)
@@ -59,4 +60,26 @@ npm run check
 - GitHub connector는 `com.queuest.github` plugin namespace와 `connectionId`를 조합한
   Credential Store 항목을 읽고, GitHub REST GET만 수행합니다. UI에서 외부 이슈를 로컬
   Task로 가져오거나 GitHub에 쓰는 흐름은 아직 연결하지 않습니다.
+- Jira Cloud connector는 `com.queuest.jira` plugin namespace와 `connectionId`로 Credential
+  Store 항목을 읽고, 다음 JSON credential을 사용합니다. `siteUrl`은 `baseUrl`로 대체할 수
+  있으며 둘 다 있으면 같은 값이어야 합니다.
+
+  ```json
+  {"siteUrl":"https://<tenant>.atlassian.net","email":"account@example.com","apiToken":"<token>"}
+  ```
+
+  기본 macOS Keychain namespace는 service
+  `com.yoonhogo.queuest.credentials.plugin.com.queuest.jira`, account
+  `com.yoonhogo.queuest.credentials.plugin.com.queuest.jira.<connectionId>`입니다. HTTPS
+  Atlassian Cloud subdomain(`*.atlassian.net`) origin만 허용하며 path·port·query·fragment·
+  userinfo나 임의 host는 거부합니다. manifest의 `network: ["*.atlassian.net"]`와
+  `secrets: ["jira"]`를 모두 승인한 뒤에만 credential/API를 사용하고, email과 API token으로
+  Basic auth를 구성해 `/rest/api/3/search/jql`(POST)과 `/rest/api/3/myself`(GET)만 호출합니다.
+  project JQL과 bounded opaque `nextPageToken` pagination을 사용해 Jira issue를
+  `ExternalWorkItem`으로 매핑하며, ADF 또는 문자열 description·labels·updatedAt·status
+  category·browse URL을 보존합니다. `health.check`는 초기화·권한만 확인하고 credential/API를
+  읽지 않으며, credential/auth/not-found/rate-limit/HTTP/malformed/network 실패는 token을
+  노출하지 않는 typed error와 connection state로 전달합니다. UI import와 local Task 저장,
+  `externalRef` deduplication, provider write, OAuth/3LO, self-hosted Jira/Data Center 지원은
+  아직 연결하지 않습니다.
 - 커밋·푸시·클라우드 동기화·팀 공유는 이 초기화 범위에 포함하지 않습니다.

@@ -101,7 +101,7 @@ Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일�
 - [x] 외부 프로세스 플러그인용 SDK와 계약 테스트
 - [x] GitHub·Jira 작업 항목과 Calendar 일정의 정규화 모델 분리
 - [x] GitHub API 플러그인
-- [ ] Jira API 플러그인
+- [x] Jira API 플러그인
 - [ ] Calendar API 플러그인
 - [x] Plugin Manager의 발견·검증·설치 상태·활성화·비활성화
 - [x] 권한 브로커·승인 저장소와 macOS Keychain Credential Store 경계
@@ -117,9 +117,9 @@ manifest는 사용자가 선택한 권한을 명시적으로 승인하기 전에
 프로세스를 spawn하지 않으며, 새로 요청된 권한도 같은 방식으로 다시 승인해야 한다.
 초기화 메시지에는 승인된 권한의 부분집합만 전달한다. Memory/원자적 JSON 승인 저장소와
 실제 `/usr/bin/security` 기반 macOS Keychain Credential Store를 제공하고, credential
-오류와 로그에는 secret 값을 포함하지 않는다. 다만 provider API, Credential Store를
-실제 Jira·Calendar provider 흐름에 연결하는 작업, 권한 승인·플러그인 설정 UI는 후속
-단계이며, transport 취소와 응답 크기 제한도 후속 경계로 남아 있다.
+오류와 로그에는 secret 값을 포함하지 않는다. Jira provider API와 Credential Store 연결은
+완료했고, Calendar provider 흐름과 권한 승인·플러그인 설정 UI는 후속 단계로 남아 있다.
+transport 취소와 응답 크기 제한도 후속 경계다.
 
 `@queuest/plugin-github`는 이 단계의 첫 실제 Connector다. 고정된
 `https://api.github.com`에서 issues와 user endpoint를 GET으로 호출하고, `com.queuest.github`
@@ -132,10 +132,39 @@ credential 오류는 안전한 typed error/connection state로 매핑한다. 응
 주입 fetch와 MemoryCredentialStore 단위 테스트로, manifest 발견·권한 거부·실제 Node
 process initialize/health/shutdown은 Plugin Manager process E2E로 검증한다.
 
+`@queuest/plugin-jira`도 읽기 전용 API Connector로 완료했다. manifest는
+`id: "com.queuest.jira"`, `capabilities: ["source.work-items"]`,
+`network: ["*.atlassian.net"]`, `secrets: ["jira"]`만 선언하며, 파일 시스템 권한은
+선언하지 않는다. Credential Store의 논리 키는 `{ pluginId: "com.queuest.jira", name:
+connectionId }`이고 JSON 값은 다음과 같다.
+
+```json
+{"siteUrl":"https://<tenant>.atlassian.net","email":"account@example.com","apiToken":"<token>"}
+```
+
+`baseUrl`은 `siteUrl`의 호환 alias이며, 기본 macOS Keychain service/account는 각각
+`com.yoonhogo.queuest.credentials.plugin.com.queuest.jira`와
+`com.yoonhogo.queuest.credentials.plugin.com.queuest.jira.<connectionId>`다. HTTPS
+`*.atlassian.net` origin만 허용하고 arbitrary host/path/port injection을 막는다. 두 권한을
+명시적으로 승인한 뒤에만 Basic `base64(email:apiToken)` 인증으로
+`POST /rest/api/3/search/jql`과 `GET /rest/api/3/myself`를 호출한다. `projectKey`로 안전한
+JQL을 만들고 bounded opaque `nextPageToken`과 `isLast`를 이용해 페이지를 이어 가며,
+summary·ADF/string description·labels·updatedAt·Jira status category를
+`ExternalWorkItem`의 title/body·labels·updatedAt·open/in_progress/closed와 stable
+`externalRef`·browse `sourceUrl`로 매핑한다. `health.check`는 initialize 이후에도
+credential/API를 읽지 않는 offline 상태 확인이며, missing/malformed credential·auth·not-found·
+rate-limit·HTTP·malformed-response·network 실패는 token을 포함하지 않는 safe typed
+error/connection state로 전달한다. 실제 manifest 발견, 승인 전 spawn 차단, 승인 후 Node
+entrypoint initialize/health/shutdown은 Plugin Manager process E2E로 검증한다.
+
 이 완료는 API Connector 범위에 한정된다. 가져오기 메뉴, 대상 마일스톤 선택, 외부 항목을
 로컬 Task로 저장하는 UI 흐름과 `externalRef` 중복 방지는 아직 구현하지 않았고, GitHub에
 수정 내용을 되돌려 쓰는 create/update/close/comment 작업도 읽기 전용 범위 밖의 후속
 단계로 남긴다.
+
+Jira Cloud에도 UI에서 외부 항목을 local Task로 import하는 흐름과 `externalRef`
+deduplication, provider write operation은 아직 없다. OAuth/3LO와 self-hosted Jira/Data
+Center 지원도 Atlassian Cloud API Connector 이후의 후속 범위다.
 
 완료 조건: 내장 플러그인과 사용자 설치 플러그인이 동일한 manifest·프로토콜로
 검증되고, 앱 본체가 플러그인의 구현이나 외부 API 타입을 직접 의존하지 않는다.
@@ -157,11 +186,16 @@ process initialize/health/shutdown은 Plugin Manager process E2E로 검증한다
 
 완료 조건: 같은 저장소에서 가져오기를 반복해도 동일 이슈가 중복 카드로 생성되지 않는다.
 
+Jira Cloud Connector의 후속 범위도 동일하다. UI import와 local Task 저장, `externalRef`
+deduplication, provider write operation, OAuth/3LO, self-hosted Jira/Data Center 지원은
+이 read-only API Connector 완료에 포함하지 않는다.
+
 ### 9. MVP 검증과 배포
 
 - [x] 도메인 계산·상태 전이 단위 테스트
 - [x] SQLite 저장·재실행·cascade 테스트
 - [x] GitHub 응답 변환 테스트 (`@queuest/plugin-github`)
+- [x] Jira 응답 변환·process boundary 테스트 (`@queuest/plugin-jira`)
 - [ ] 로컬 Task `externalRef` 중복 방지 테스트
 - [ ] AI 결과 변환·취소·오류 테스트
 - [ ] 키보드 포커스·접근성 라벨·색상 외 상태 표현 점검
