@@ -34,5 +34,7 @@ export {
 export {
   PluginManager,
   PluginManagerError,
+  PluginPermissionApprovalError,
+  PLUGIN_PERMISSION_APPROVAL_REQUIRED,
   type PluginManagerOptions,
 } from "./manager.ts";

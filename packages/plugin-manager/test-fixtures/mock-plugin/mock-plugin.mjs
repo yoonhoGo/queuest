@@ -16,9 +16,13 @@ input.on("line", (line) => {
 
   process.stderr.write(`mock-plugin:${request.method}\n`);
   if (request.method === "initialize") {
+    process.stderr.write(
+      `mock-plugin:initialize-granted:${JSON.stringify(request.params?.grantedPermissions ?? {})}\n`,
+    );
     writeResponse(request, {
       initialized: true,
       appId: request.params?.host?.appId,
+      grantedPermissions: request.params?.grantedPermissions ?? {},
     });
     return;
   }

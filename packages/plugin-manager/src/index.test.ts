@@ -8,14 +8,20 @@ import path from "node:path";
 import type {
   JsonObject,
   PluginManifest,
+  PluginPermissions,
   PluginResponse,
 } from "@queuest/plugin-contracts";
+import {
+  MemoryPermissionApprovalStore,
+  PermissionBroker,
+} from "@queuest/plugin-permissions";
 import {
   discoverPlugins,
   isHostApiCompatible,
   MemoryPluginStateStore,
   PluginManager,
   PluginManagerError,
+  PluginPermissionApprovalError,
   PluginTransport,
   resolvePluginEntryPath,
   type PluginProcess,
@@ -169,6 +175,59 @@ test("enables, initializes, requests, and gracefully shuts down an external plug
   assert.equal(manager.getTransport("com.example.calendar"), undefined);
 });
 
+test("requires explicit manifest permission approval before spawning", async () => {
+  const root = await temporaryDirectory();
+  const pluginDirectory = path.join(root, "permissioned");
+  const pluginId = "com.example.permissioned";
+  const permissions: PluginPermissions = {
+    network: ["api.example.com"],
+    secrets: ["github"],
+  };
+  await writeManifest(pluginDirectory, manifest(pluginId, "node", "^1.0.0", permissions));
+
+  let spawnCalls = 0;
+  let initialized: JsonObject | undefined;
+  const spawn = fakeSpawn((request, process) => {
+    if (request.method === "initialize") {
+      initialized = request.params;
+    }
+    process.respond({ protocolVersion: 1, id: request.id, result: {} });
+  }, () => {
+    spawnCalls += 1;
+  });
+  const manager = new PluginManager({
+    hostVersion: "1.0.0",
+    directories: [{ path: pluginDirectory, source: "user" }],
+    stateStore: new MemoryPluginStateStore(),
+    permissionBroker: new PermissionBroker(new MemoryPermissionApprovalStore()),
+    spawnProcess: spawn,
+  });
+  await manager.discover();
+
+  const initial = await manager.inspectPluginPermissions(pluginId);
+  assert.deepEqual(initial.granted, {});
+  assert.deepEqual(initial.missing, permissions);
+  await assert.rejects(manager.activatePlugin(pluginId), (error: unknown) => {
+    return (
+      error instanceof PluginPermissionApprovalError &&
+      error.code === "PLUGIN_PERMISSION_APPROVAL_REQUIRED" &&
+      error.permissionState.missing.secrets?.includes("github") === true
+    );
+  });
+  assert.equal(spawnCalls, 0);
+
+  await manager.approvePluginPermissions(pluginId, { network: ["api.example.com"] });
+  await assert.rejects(manager.activatePlugin(pluginId), PluginPermissionApprovalError);
+  assert.equal(spawnCalls, 0);
+
+  await manager.approvePluginPermissions(pluginId, { secrets: ["github"] });
+  const transport = await manager.activatePlugin(pluginId);
+  assert.equal(spawnCalls, 1);
+  assert.deepEqual(initialized?.grantedPermissions, permissions);
+  await manager.shutdown();
+  assert.equal(transport.status, "stopped");
+});
+
 test("correlates out-of-order responses and ignores unmatched responses", async () => {
   const events: string[] = [];
   let process: FakePluginProcess | undefined;
@@ -299,6 +358,7 @@ function manifest(
   id: string,
   command: string,
   hostApi = "^1.0.0",
+  permissions?: PluginPermissions,
 ): PluginManifest {
   return {
     schemaVersion: 1,
@@ -308,6 +368,7 @@ function manifest(
     hostApi,
     entry: { type: "process", command },
     capabilities: ["source.work-items"],
+    ...(permissions ? { permissions } : {}),
   };
 }
 

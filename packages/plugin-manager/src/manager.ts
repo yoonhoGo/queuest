@@ -19,6 +19,11 @@ import {
   type PluginSpawn,
   type PluginTransportOptions,
 } from "./transport.ts";
+import {
+  PermissionBroker,
+  PermissionBrokerError,
+  type PluginPermissionState,
+} from "@queuest/plugin-permissions";
 import { PLUGIN_PROTOCOL_VERSION } from "@queuest/plugin-contracts";
 import type {
   JsonObject,
@@ -37,9 +42,12 @@ export interface PluginManagerOptions extends PluginDiscoveryOptions {
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   logger?: PluginLogger;
+  permissionBroker?: PermissionBroker;
   grantedPermissions?: PluginPermissions;
   initializeOnActivate?: boolean;
 }
+
+export const PLUGIN_PERMISSION_APPROVAL_REQUIRED = "PLUGIN_PERMISSION_APPROVAL_REQUIRED" as const;
 
 export class PluginManagerError extends Error {
   public readonly code: string;
@@ -58,6 +66,27 @@ export class PluginManagerError extends Error {
   }
 }
 
+export class PluginPermissionApprovalError extends PluginManagerError {
+  public readonly permissionState: PluginPermissionState;
+  public readonly state: PluginPermissionState;
+
+  public constructor(
+    pluginId: string,
+    permissionState: PluginPermissionState,
+    cause?: unknown,
+  ) {
+    super(
+      PLUGIN_PERMISSION_APPROVAL_REQUIRED,
+      "플러그인 권한 승인이 필요합니다.",
+      pluginId,
+      cause === undefined ? undefined : { cause },
+    );
+    this.permissionState = permissionState;
+    this.state = permissionState;
+    this.name = "PluginPermissionApprovalError";
+  }
+}
+
 /**
  * Owns plugin discovery, activation metadata, and one transport per active
  * plugin. Installation here means recording lifecycle state; it deliberately
@@ -70,6 +99,7 @@ export class PluginManager {
   private readonly requestTimeoutMs?: number;
   private readonly shutdownTimeoutMs?: number;
   private readonly logger?: PluginLogger;
+  private readonly permissionBroker: PermissionBroker;
   private readonly grantedPermissions: PluginPermissions;
   private readonly initializeOnActivate: boolean;
   private allRecords: PluginRecord[] = [];
@@ -98,6 +128,7 @@ export class PluginManager {
     this.requestTimeoutMs = options.requestTimeoutMs;
     this.shutdownTimeoutMs = options.shutdownTimeoutMs;
     this.logger = options.logger;
+    this.permissionBroker = options.permissionBroker ?? new PermissionBroker();
     this.grantedPermissions = options.grantedPermissions ?? {};
     this.initializeOnActivate = options.initializeOnActivate ?? true;
   }
@@ -173,20 +204,62 @@ export class PluginManager {
     return this.requireRecordSync(id);
   }
 
+  /** Inspect the current manifest request and persisted approval state. */
+  public async inspectPluginPermissions(id: string): Promise<PluginPermissionState> {
+    const record = await this.requireRecord(id);
+    this.assertValid(record);
+    return this.permissionBroker.inspect(id, record.manifest?.permissions);
+  }
+
+  /** Persist an explicitly selected subset of the manifest request. */
+  public async approvePluginPermissions(
+    id: string,
+    selected: PluginPermissions,
+  ): Promise<PluginPermissionState> {
+    const record = await this.requireRecord(id);
+    this.assertValid(record);
+    return this.permissionBroker.approve(id, record.manifest?.permissions ?? {}, selected);
+  }
+
+  public async revokePluginPermissions(
+    id: string,
+    selected?: PluginPermissions,
+  ): Promise<PluginPermissionState> {
+    const record = await this.requireRecord(id);
+    this.assertValid(record);
+    return this.permissionBroker.revoke(id, selected);
+  }
+
+  public async getApprovedPluginPermissions(id: string): Promise<PluginPermissions> {
+    const record = await this.requireRecord(id);
+    this.assertValid(record);
+    return this.permissionBroker.getApprovedPermissions(id, record.manifest?.permissions);
+  }
+
   /** Enable and spawn a process plugin. A later app shutdown preserves enabled state. */
   public async activatePlugin(id: string): Promise<PluginTransport> {
+    const record = await this.requireRecord(id);
+    this.assertValid(record);
+    if (!record.installed) {
+      throw new PluginManagerError(
+        "PLUGIN_NOT_INSTALLED",
+        "플러그인이 설치 상태가 아닙니다.",
+        id,
+      );
+    }
+    const approvedPermissions = await this.resolveApprovedPermissions(id, record);
     const existing = this.transports.get(id);
     if (existing && existing.status === "running") {
       return existing;
     }
 
-    const record = await this.enablePlugin(id);
-    if (!record.resolvedEntry) {
+    const enabledRecord = await this.enablePlugin(id);
+    if (!enabledRecord.resolvedEntry) {
       throw new PluginManagerError("PLUGIN_ENTRY_INVALID", "플러그인 entry를 해석하지 못했습니다.", id);
     }
-    if (record.resolvedEntry.entryPath) {
+    if (enabledRecord.resolvedEntry.entryPath) {
       try {
-        await assertPluginEntryPathSafe(record.directory, record.resolvedEntry.entryPath);
+        await assertPluginEntryPathSafe(enabledRecord.directory, enabledRecord.resolvedEntry.entryPath);
       } catch (error: unknown) {
         throw new PluginManagerError(
           "PLUGIN_ENTRY_INVALID",
@@ -198,7 +271,7 @@ export class PluginManager {
     }
 
     const transportOptions: PluginTransportOptions = {
-      ...record.resolvedEntry,
+      ...enabledRecord.resolvedEntry,
       pluginId: id,
       ...(this.requestTimeoutMs === undefined ? {} : { timeoutMs: this.requestTimeoutMs }),
       ...(this.shutdownTimeoutMs === undefined
@@ -219,7 +292,7 @@ export class PluginManager {
           },
           // PluginPermissions is contract-typed but intentionally does not
           // carry JsonObject's open index signature; its fields are JSON-safe.
-          grantedPermissions: { ...this.grantedPermissions } as unknown as JsonObject,
+          grantedPermissions: { ...approvedPermissions } as unknown as JsonObject,
         });
       }
     } catch (error: unknown) {
@@ -276,6 +349,30 @@ export class PluginManager {
       await this.discover();
     }
     return this.requireRecordSync(id);
+  }
+
+  private async resolveApprovedPermissions(
+    pluginId: string,
+    record: PluginRecord,
+  ): Promise<PluginPermissions> {
+    // Keep the pre-broker initialize payload for the existing public option
+    // when a manifest does not declare any permission boundary.
+    if (record.manifest?.permissions === undefined) {
+      return clonePermissions(this.grantedPermissions);
+    }
+
+    try {
+      return await this.permissionBroker.requireApproval(pluginId, record.manifest.permissions);
+    } catch (error: unknown) {
+      if (
+        error instanceof PermissionBrokerError &&
+        error.code === "PERMISSION_APPROVAL_REQUIRED" &&
+        error.state
+      ) {
+        throw new PluginPermissionApprovalError(pluginId, error.state, error);
+      }
+      throw error;
+    }
   }
 
   private requireRecordSync(id: string): PluginRecord {
@@ -376,4 +473,14 @@ function cloneRecord(record: PluginRecord): PluginRecord {
 
 function readableError(error: unknown): string {
   return error instanceof Error && error.message.trim() ? error.message : "알 수 없는 오류";
+}
+
+function clonePermissions(permissions: PluginPermissions): PluginPermissions {
+  return {
+    ...(permissions.network ? { network: [...permissions.network] } : {}),
+    ...(permissions.secrets ? { secrets: [...permissions.secrets] } : {}),
+    ...(permissions.filesystem
+      ? { filesystem: permissions.filesystem.map((permission) => ({ ...permission })) }
+      : {}),
+  };
 }

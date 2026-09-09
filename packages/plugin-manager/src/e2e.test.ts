@@ -5,9 +5,14 @@ import { afterEach, test } from "node:test";
 import os from "node:os";
 import path from "node:path";
 import {
+  MemoryPermissionApprovalStore,
+  PermissionBroker,
+} from "@queuest/plugin-permissions";
+import {
   MemoryPluginStateStore,
   PluginManager,
   PluginManagerError,
+  PluginPermissionApprovalError,
   type PluginRecord,
 } from "./index.ts";
 
@@ -139,6 +144,68 @@ test("runs the repository mock plugin through a real process lifecycle", async (
   assert.equal(persisted.plugins["com.queuest.mock"].enabled, true);
 });
 
+test("requires approval before running a permissioned real mock plugin", async () => {
+  const root = await temporaryDirectory();
+  const builtinRoot = path.join(root, "builtins");
+  const pluginDirectory = path.join(builtinRoot, "permissioned-mock");
+  const pluginId = "com.queuest.mock.permissioned";
+  const requestedPermissions = {
+    network: ["api.example.com"],
+    secrets: ["github"],
+  };
+  await copyFixture(pluginDirectory);
+  await updateManifest(path.join(pluginDirectory, "manifest.json"), {
+    id: pluginId,
+    name: "Queuest Permissioned Mock Plugin",
+    permissions: requestedPermissions,
+  });
+  const warnings: string[] = [];
+  const manager = new PluginManager({
+    hostVersion: "1.0.0",
+    builtinDirectories: [builtinRoot],
+    userDirectories: [path.join(root, "user")],
+    stateStore: new MemoryPluginStateStore(),
+    permissionBroker: new PermissionBroker(new MemoryPermissionApprovalStore()),
+    logger: { warn: (message) => warnings.push(message) },
+  });
+
+  await manager.discover();
+  await assert.rejects(manager.activatePlugin(pluginId), (error: unknown) => {
+    return error instanceof PluginPermissionApprovalError && error.code === "PLUGIN_PERMISSION_APPROVAL_REQUIRED";
+  });
+  assert.equal(manager.getTransport(pluginId), undefined);
+  assert.equal(warnings.some((message) => message.includes("mock-plugin:initialize")), false);
+
+  await manager.approvePluginPermissions(pluginId, { network: ["api.example.com"] });
+  assert.deepEqual(await manager.getApprovedPluginPermissions(pluginId), {
+    network: ["api.example.com"],
+  });
+  await assert.rejects(manager.activatePlugin(pluginId), PluginPermissionApprovalError);
+  assert.equal(manager.getTransport(pluginId), undefined);
+
+  await manager.approvePluginPermissions(pluginId, { secrets: ["github"] });
+  assert.deepEqual(await manager.getApprovedPluginPermissions(pluginId), requestedPermissions);
+  const transport = await manager.activatePlugin(pluginId);
+  assert.deepEqual(
+    await manager.requestPlugin<{ state: string; label: string }>(
+      pluginId,
+      "health.check",
+      { label: "permissioned" },
+    ),
+    { state: "connected", label: "permissioned" },
+  );
+  assert.equal(
+    warnings.some((message) =>
+      message.includes(`mock-plugin:initialize-granted:${JSON.stringify(requestedPermissions)}`),
+    ),
+    true,
+  );
+
+  await manager.shutdown();
+  assert.equal(transport.status, "stopped");
+  assert.equal(warnings.some((message) => message.includes("mock-plugin:shutdown")), true);
+});
+
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "queuest-plugin-e2e-"));
   temporaryDirectories.push(directory);
@@ -151,7 +218,7 @@ async function copyFixture(targetDirectory: string): Promise<void> {
 
 async function updateManifest(
   manifestPath: string,
-  changes: { id: string; name: string },
+  changes: { id: string; name: string; permissions?: unknown },
 ): Promise<void> {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
   await writeFile(
