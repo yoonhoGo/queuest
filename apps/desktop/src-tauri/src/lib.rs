@@ -1,5 +1,6 @@
 use std::{
     io::Read,
+    path::Path,
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
@@ -33,6 +34,13 @@ struct GithubIssue {
     url: String,
 }
 
+#[derive(Debug, Serialize)]
+struct RepoPathInfo {
+    path: String,
+    #[serde(rename = "isDirectory")]
+    is_directory: bool,
+}
+
 fn toggle_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         if window.is_visible().unwrap_or(false) {
@@ -43,6 +51,28 @@ fn toggle_main_window(app: &tauri::AppHandle) {
             let _ = window.set_focus();
         }
     }
+}
+
+#[tauri::command]
+fn validate_repo_path(repo_path: String) -> Result<RepoPathInfo, String> {
+    let path = repo_path.trim();
+    if path.is_empty() {
+        return Err("프로젝트 작업 경로를 입력하세요.".to_string());
+    }
+
+    let candidate = Path::new(path);
+    if !candidate.exists() {
+        return Err("입력한 작업 경로가 존재하지 않습니다.".to_string());
+    }
+
+    if !candidate.is_dir() {
+        return Err("프로젝트 작업 경로는 폴더여야 합니다.".to_string());
+    }
+
+    Ok(RepoPathInfo {
+        path: path.to_string(),
+        is_directory: true,
+    })
 }
 
 fn wait_for_agent(child: Arc<Mutex<Child>>) -> Result<AgentRunResult, String> {
@@ -236,7 +266,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             run_agent,
             cancel_agent,
-            github_issue_list
+            github_issue_list,
+            validate_repo_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

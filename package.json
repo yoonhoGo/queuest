@@ -11,7 +11,7 @@
     "dev": "npm run dev --workspace @queuest/desktop",
     "build": "npm run build --workspace @queuest/desktop",
     "check": "npm run typecheck --workspaces --if-present && npm run build --workspace @queuest/desktop",
-    "test": "npm run test --workspaces --if-present",
+    "test": "node --experimental-strip-types --test packages/domain/src/index.test.ts packages/adapter-sqlite/src/index.test.ts",
     "tauri": "npm run tauri --workspace @queuest/desktop --"
   },
   "engines": {

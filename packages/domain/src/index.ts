@@ -90,6 +90,10 @@ export interface SkillSummary {
   emphasized: boolean;
 }
 
+export interface TaskStatusTransitionOptions {
+  confirmedByHuman?: boolean;
+}
+
 const STATUS_ORDER: readonly TaskStatus[] = TASK_STATUSES;
 
 export function getMilestoneTasks(milestoneId: EntityId, tasks: Task[]): Task[] {
@@ -214,6 +218,43 @@ export function activeTaskCount(tasks: Task[]): number {
 export function advanceTaskStatus(status: TaskStatus): TaskStatus {
   const index = STATUS_ORDER.indexOf(status);
   return STATUS_ORDER[Math.min(index + 1, STATUS_ORDER.length - 1)];
+}
+
+export function retreatTaskStatus(status: TaskStatus): TaskStatus {
+  const index = STATUS_ORDER.indexOf(status);
+  return STATUS_ORDER[Math.max(index - 1, 0)];
+}
+
+export function canTransitionTaskStatus(
+  task: Task,
+  nextStatus: TaskStatus,
+  options: TaskStatusTransitionOptions = {},
+): boolean {
+  if (task.status === nextStatus) {
+    return true;
+  }
+
+  if (nextStatus === "done") {
+    return task.status === "review" && Boolean(options.confirmedByHuman);
+  }
+
+  return true;
+}
+
+export function transitionTaskStatus(
+  task: Task,
+  nextStatus: TaskStatus,
+  options: TaskStatusTransitionOptions = {},
+): Task {
+  if (!canTransitionTaskStatus(task, nextStatus, options)) {
+    if (nextStatus === "done" && task.status !== "review") {
+      throw new Error("퀘스트는 검토 대기 상태를 거친 뒤 완료할 수 있습니다.");
+    }
+
+    throw new Error("퀘스트는 사람의 확인 후에만 완료할 수 있습니다.");
+  }
+
+  return { ...task, status: nextStatus };
 }
 
 export function canAssignToAi(project: Project, loadout: Loadout): boolean {

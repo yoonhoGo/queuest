@@ -145,9 +145,15 @@ function toInboxTodo(row: InboxTodoRow): InboxTodo {
 }
 
 export class SqliteTaskRepository implements QueuestRepository, InboxTodoRepository {
-  public constructor(private readonly database: Database) {}
+  private readonly database: Database;
+
+  public constructor(database: Database) {
+    this.database = database;
+  }
 
   public async initialize(): Promise<void> {
+    await this.database.execute("PRAGMA foreign_keys = ON");
+
     for (const statement of SCHEMA_STATEMENTS) {
       await this.database.execute(statement);
     }
@@ -233,6 +239,10 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
     );
   }
 
+  public async deleteProject(projectId: EntityId): Promise<void> {
+    await this.database.execute("DELETE FROM projects WHERE id = $1", [projectId]);
+  }
+
   public async saveMilestone(milestone: Milestone): Promise<void> {
     await this.database.execute(
       `INSERT INTO milestones (id, project_id, name, milestone_order)
@@ -243,6 +253,10 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
          milestone_order = excluded.milestone_order`,
       [milestone.id, milestone.projectId, milestone.name, milestone.order],
     );
+  }
+
+  public async deleteMilestone(milestoneId: EntityId): Promise<void> {
+    await this.database.execute("DELETE FROM milestones WHERE id = $1", [milestoneId]);
   }
 
   public async saveTask(task: Task): Promise<void> {

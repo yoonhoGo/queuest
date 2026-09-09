@@ -13,7 +13,9 @@ export interface TaskRepository {
   listProjectGraphs(): Promise<ProjectGraph[]>;
   saveWorkspace(workspace: Workspace): Promise<void>;
   saveProject(project: Project): Promise<void>;
+  deleteProject(projectId: EntityId): Promise<void>;
   saveMilestone(milestone: Milestone): Promise<void>;
+  deleteMilestone(milestoneId: EntityId): Promise<void>;
   saveTask(task: Task): Promise<void>;
   deleteTask(taskId: EntityId): Promise<void>;
 }

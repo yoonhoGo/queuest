@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import type {
   EntityId,
   Milestone,
@@ -22,9 +23,19 @@ export async function saveProject(project: Project): Promise<void> {
   await repository.saveProject(project);
 }
 
+export async function deleteProject(projectId: EntityId): Promise<void> {
+  const repository = await getRepository();
+  await repository.deleteProject(projectId);
+}
+
 export async function saveMilestone(milestone: Milestone): Promise<void> {
   const repository = await getRepository();
   await repository.saveMilestone(milestone);
+}
+
+export async function deleteMilestone(milestoneId: EntityId): Promise<void> {
+  const repository = await getRepository();
+  await repository.deleteMilestone(milestoneId);
 }
 
 export async function saveTask(task: Task): Promise<void> {
@@ -32,9 +43,16 @@ export async function saveTask(task: Task): Promise<void> {
   await repository.saveTask(task);
 }
 
+export async function deleteTask(taskId: EntityId): Promise<void> {
+  const repository = await getRepository();
+  await repository.deleteTask(taskId);
+}
+
 export interface NewProjectInput {
   name: string;
   firstTaskTitle?: string;
+  repoPath?: string;
+  skills?: string[];
 }
 
 export interface CreatedProject {
@@ -53,7 +71,8 @@ export async function createProject(input: NewProjectInput): Promise<CreatedProj
     id: crypto.randomUUID(),
     workspaceId: workspace.id,
     name: input.name.trim(),
-    skills: [],
+    ...(input.repoPath ? { repoPath: input.repoPath.trim() } : {}),
+    skills: input.skills ?? [],
   };
   const milestone: Milestone = {
     id: crypto.randomUUID(),
@@ -91,4 +110,13 @@ export function graphForProject(
   projectId: EntityId,
 ): ProjectGraph | undefined {
   return graphs.find((graph) => graph.project.id === projectId);
+}
+
+export interface RepoPathInfo {
+  path: string;
+  isDirectory: boolean;
+}
+
+export async function validateRepoPath(repoPath: string): Promise<RepoPathInfo> {
+  return invoke<RepoPathInfo>("validate_repo_path", { repoPath });
 }

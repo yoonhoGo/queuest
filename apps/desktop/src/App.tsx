@@ -3,6 +3,7 @@ import type { FormEvent, RefObject } from "react";
 import {
   activeTaskCount,
   advanceTaskStatus,
+  canTransitionTaskStatus,
   calculateExperience,
   calculateLevel,
   calculateMilestoneProgress,
@@ -12,11 +13,16 @@ import {
   canAssignToAi,
   isMilestoneComplete,
   isMilestoneUnlocked,
+  retreatTaskStatus,
+  transitionTaskStatus,
 } from "@queuest/domain";
 import type {
+  Assignee,
   Character,
   InboxTodo,
   Loadout,
+  Milestone,
+  Project,
   ProjectGraph,
   Task,
   TaskStatus,
@@ -28,9 +34,15 @@ import {
 } from "./data/inbox";
 import {
   createProject,
+  deleteMilestone,
+  deleteProject,
+  deleteTask,
   graphForProject,
   loadProjectGraphs,
   saveTask,
+  saveMilestone,
+  saveProject,
+  validateRepoPath,
   type NewProjectInput,
 } from "./data/project";
 import "./App.css";
@@ -209,6 +221,14 @@ function App() {
     setView("inbox");
   }
 
+  function backToProjectPicker() {
+    setSelectedProjectGraph(null);
+    setProjectGraphs(null);
+    setProjectLoadState("idle");
+    setProjectLoadError(null);
+    setView("project-picker");
+  }
+
   function openProjectPicker() {
     setActionError(null);
     setView("project-picker");
@@ -220,7 +240,15 @@ function App() {
     setActionError(null);
 
     try {
-      const created = await createProject(input);
+      const repoPath = input.repoPath?.trim();
+      if (repoPath) {
+        await validateRepoPath(repoPath);
+      }
+
+      const created = await createProject({
+        ...input,
+        ...(repoPath ? { repoPath } : {}),
+      });
       const graphs = await loadProjectGraphs();
       setProjectGraphs(graphs);
       setProjectLoadState("ready");
@@ -246,6 +274,7 @@ function App() {
         key={selectedProjectGraph.project.id}
         graph={selectedProjectGraph}
         onBackToInbox={backToInbox}
+        onProjectDeleted={backToProjectPicker}
       />
     );
   }
@@ -310,6 +339,14 @@ function readableError(error: unknown): string {
 
 function compareTodos(left: InboxTodo, right: InboxTodo): number {
   return left.createdAt.localeCompare(right.createdAt);
+}
+
+function parseSkillText(value: string): string[] {
+  return [...new Set(value.split(",").map((skill) => skill.trim()).filter(Boolean))];
+}
+
+function skillText(skills: string[]): string {
+  return skills.join(", ");
 }
 
 interface AppHeaderProps {
@@ -791,6 +828,8 @@ function ProjectCreateForm({
 }: ProjectCreateFormProps) {
   const [name, setName] = useState("");
   const [firstTaskTitle, setFirstTaskTitle] = useState(initialTaskTitle ?? "");
+  const [repoPath, setRepoPath] = useState("");
+  const [skills, setSkills] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -802,7 +841,12 @@ function ProjectCreateForm({
     }
 
     setValidationError(null);
-    await onSubmit({ name: trimmedName, firstTaskTitle: firstTaskTitle.trim() || undefined });
+    await onSubmit({
+      name: trimmedName,
+      firstTaskTitle: firstTaskTitle.trim() || undefined,
+      repoPath: repoPath.trim() || undefined,
+      skills: parseSkillText(skills),
+    });
   }
 
   return (
@@ -838,6 +882,24 @@ function ProjectCreateForm({
         placeholder="인박스의 할 일을 첫 퀘스트로 복사할 수 있습니다"
         onChange={(event) => setFirstTaskTitle(event.target.value)}
       />
+      <label htmlFor="new-project-repo-path">작업 폴더 <span>(선택)</span></label>
+      <input
+        id="new-project-repo-path"
+        type="text"
+        value={repoPath}
+        disabled={submitting}
+        placeholder="/Users/me/Projects/queuest"
+        onChange={(event) => setRepoPath(event.target.value)}
+      />
+      <label htmlFor="new-project-skills">프로젝트 스킬 <span>(선택)</span></label>
+      <input
+        id="new-project-skills"
+        type="text"
+        value={skills}
+        disabled={submitting}
+        placeholder="typescript, tauri, rust"
+        onChange={(event) => setSkills(event.target.value)}
+      />
       {validationError && <p className="validation-note" role="alert">{validationError}</p>}
       <div className="form-actions">
         <button className="primary-button" type="submit" disabled={submitting}>
@@ -860,36 +922,435 @@ function ProjectLoadingState() {
   );
 }
 
+interface TaskDraft {
+  milestoneId: string;
+  title: string;
+  body: string;
+  assignee: Assignee;
+  skills: string[];
+  blocked: boolean;
+}
+
+interface TaskEditorProps {
+  task?: Task;
+  defaultMilestoneId: string;
+  milestones: Milestone[];
+  submitting: boolean;
+  onCancel: () => void;
+  onSubmit: (draft: TaskDraft) => Promise<boolean>;
+}
+
+function TaskEditor({
+  task,
+  defaultMilestoneId,
+  milestones,
+  submitting,
+  onCancel,
+  onSubmit,
+}: TaskEditorProps) {
+  const [title, setTitle] = useState(task?.title ?? "");
+  const [body, setBody] = useState(task?.body ?? "");
+  const [milestoneId, setMilestoneId] = useState(task?.milestoneId ?? defaultMilestoneId);
+  const [assignee, setAssignee] = useState<Assignee>(task?.assignee ?? "human");
+  const [skills, setSkills] = useState(skillText(task?.skills ?? []));
+  const [blocked, setBlocked] = useState(task?.blocked ?? false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedTitle = title.trim();
+
+    if (!trimmedTitle) {
+      setValidationError("퀘스트 제목을 입력하세요.");
+      return;
+    }
+
+    if (!milestoneId) {
+      setValidationError("퀘스트를 담을 스테이지를 선택하세요.");
+      return;
+    }
+
+    setValidationError(null);
+    await onSubmit({
+      milestoneId,
+      title: trimmedTitle,
+      body: body.trim(),
+      assignee,
+      skills: parseSkillText(skills),
+      blocked,
+    });
+  }
+
+  return (
+    <form className="editor-panel task-editor" onSubmit={handleSubmit} aria-labelledby="task-editor-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">QUEST EDITOR</p>
+          <h2 id="task-editor-title">{task ? "퀘스트 편집" : "새 퀘스트"}</h2>
+        </div>
+        <span className="section-note">SQLite에 저장</span>
+      </div>
+
+      <div className="editor-grid">
+        <label>
+          퀘스트 제목
+          <input
+            type="text"
+            value={title}
+            autoFocus
+            disabled={submitting}
+            placeholder="예: 첫 화면 설계하기"
+            onChange={(event) => {
+              setTitle(event.target.value);
+              if (validationError) {
+                setValidationError(null);
+              }
+            }}
+          />
+        </label>
+        <label>
+          스테이지
+          <select
+            value={milestoneId}
+            disabled={submitting || milestones.length === 0}
+            onChange={(event) => setMilestoneId(event.target.value)}
+          >
+            {milestones.map((milestone) => (
+              <option value={milestone.id} key={milestone.id}>
+                {milestone.order}. {milestone.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <label>
+        본문
+        <textarea
+          value={body}
+          disabled={submitting}
+          rows={3}
+          placeholder="완료 조건이나 작업 메모를 적습니다"
+          onChange={(event) => setBody(event.target.value)}
+        />
+      </label>
+
+      <div className="editor-grid">
+        <label>
+          담당
+          <select
+            value={assignee}
+            disabled={submitting}
+            onChange={(event) => setAssignee(event.target.value as Assignee)}
+          >
+            <option value="human">나</option>
+            <option value="ai">AI</option>
+          </select>
+        </label>
+        <label>
+          스킬 태그
+          <input
+            type="text"
+            value={skills}
+            disabled={submitting}
+            placeholder="typescript, planning"
+            onChange={(event) => setSkills(event.target.value)}
+          />
+        </label>
+      </div>
+
+      <label className="checkbox-label">
+        <input
+          type="checkbox"
+          checked={blocked}
+          disabled={submitting}
+          onChange={(event) => setBlocked(event.target.checked)}
+        />
+        <span>막힌 퀘스트로 표시</span>
+      </label>
+
+      {validationError && <p className="validation-note" role="alert">{validationError}</p>}
+      <div className="form-actions">
+        <button className="primary-button" type="submit" disabled={submitting || milestones.length === 0}>
+          {submitting ? "저장 중…" : task ? "변경 저장" : "퀘스트 추가"}
+        </button>
+        <button className="secondary-button" type="button" onClick={onCancel} disabled={submitting}>
+          취소
+        </button>
+      </div>
+    </form>
+  );
+}
+
+interface MilestoneEditorProps {
+  milestone?: Milestone;
+  submitting: boolean;
+  onCancel: () => void;
+  onSubmit: (name: string) => Promise<boolean>;
+}
+
+function MilestoneEditor({ milestone, submitting, onCancel, onSubmit }: MilestoneEditorProps) {
+  const [name, setName] = useState(milestone?.name ?? "");
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setValidationError("스테이지 이름을 입력하세요.");
+      return;
+    }
+
+    setValidationError(null);
+    await onSubmit(trimmedName);
+  }
+
+  return (
+    <form className="editor-panel compact-editor" onSubmit={handleSubmit} aria-labelledby="milestone-editor-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">STAGE EDITOR</p>
+          <h2 id="milestone-editor-title">{milestone ? "스테이지 편집" : "새 스테이지"}</h2>
+        </div>
+      </div>
+      <label>
+        스테이지 이름
+        <input
+          type="text"
+          value={name}
+          autoFocus
+          disabled={submitting}
+          placeholder="예: 앱의 심장"
+          onChange={(event) => {
+            setName(event.target.value);
+            if (validationError) {
+              setValidationError(null);
+            }
+          }}
+        />
+      </label>
+      {validationError && <p className="validation-note" role="alert">{validationError}</p>}
+      <div className="form-actions">
+        <button className="primary-button" type="submit" disabled={submitting}>
+          {submitting ? "저장 중…" : milestone ? "변경 저장" : "스테이지 추가"}
+        </button>
+        <button className="secondary-button" type="button" onClick={onCancel} disabled={submitting}>
+          취소
+        </button>
+      </div>
+    </form>
+  );
+}
+
+interface ProjectSettingsDraft {
+  name: string;
+  repoPath: string;
+  skills: string[];
+}
+
+interface ProjectSettingsPanelProps {
+  project: Project;
+  submitting: boolean;
+  onClose: () => void;
+  onSubmit: (draft: ProjectSettingsDraft) => Promise<boolean>;
+  onDelete: () => void;
+}
+
+function ProjectSettingsPanel({
+  project,
+  submitting,
+  onClose,
+  onSubmit,
+  onDelete,
+}: ProjectSettingsPanelProps) {
+  const [name, setName] = useState(project.name);
+  const [repoPath, setRepoPath] = useState(project.repoPath ?? "");
+  const [skills, setSkills] = useState(skillText(project.skills));
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setValidationError("프로젝트 이름을 입력하세요.");
+      return;
+    }
+
+    setValidationError(null);
+    const saved = await onSubmit({
+      name: trimmedName,
+      repoPath: repoPath.trim(),
+      skills: parseSkillText(skills),
+    });
+    if (!saved) {
+      setValidationError("프로젝트 설정을 저장하지 못했습니다.");
+    }
+  }
+
+  return (
+    <form className="editor-panel project-settings" onSubmit={handleSubmit} aria-labelledby="project-settings-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">EXPEDITION SETTINGS</p>
+          <h2 id="project-settings-title">프로젝트 설정</h2>
+        </div>
+        <span className="section-note">경로 저장 전 폴더 확인</span>
+      </div>
+
+      <label>
+        프로젝트 이름
+        <input
+          type="text"
+          value={name}
+          autoFocus
+          disabled={submitting}
+          onChange={(event) => {
+            setName(event.target.value);
+            if (validationError) {
+              setValidationError(null);
+            }
+          }}
+        />
+      </label>
+      <label>
+        작업 폴더 (`repoPath`)
+        <input
+          type="text"
+          value={repoPath}
+          disabled={submitting}
+          placeholder="/Users/me/Projects/queuest"
+          onChange={(event) => setRepoPath(event.target.value)}
+        />
+        <small className="field-hint">비워두면 AI와 GitHub 기능이 비활성화됩니다.</small>
+      </label>
+      <label>
+        프로젝트 스킬
+        <input
+          type="text"
+          value={skills}
+          disabled={submitting}
+          placeholder="typescript, tauri, rust"
+          onChange={(event) => setSkills(event.target.value)}
+        />
+      </label>
+
+      {validationError && <p className="validation-note" role="alert">{validationError}</p>}
+      <div className="form-actions settings-actions">
+        <button className="primary-button" type="submit" disabled={submitting}>
+          {submitting ? "확인 중…" : "설정 저장"}
+        </button>
+        <button className="secondary-button" type="button" onClick={onClose} disabled={submitting}>
+          닫기
+        </button>
+        <button className="danger-button" type="button" onClick={onDelete} disabled={submitting}>
+          프로젝트 삭제
+        </button>
+      </div>
+    </form>
+  );
+}
+
+interface ConfirmDialogProps {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+}
+
+function ConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  busy,
+  onCancel,
+  onConfirm,
+}: ConfirmDialogProps) {
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    confirmButtonRef.current?.focus();
+  }, []);
+
+  return (
+    <div className="dialog-backdrop">
+      <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <p className="eyebrow">CONFIRM ACTION</p>
+        <h2 id="confirm-title">{title}</h2>
+        <p>{message}</p>
+        <div className="form-actions">
+          <button
+            className="danger-button"
+            type="button"
+            ref={confirmButtonRef}
+            disabled={busy}
+            onClick={() => void onConfirm()}
+          >
+            {busy ? "처리 중…" : confirmLabel}
+          </button>
+          <button className="secondary-button" type="button" onClick={onCancel} disabled={busy}>
+            취소
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 interface ProjectBoardProps {
   graph: ProjectGraph;
   onBackToInbox: () => void;
+  onProjectDeleted: () => void;
 }
 
-function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
+function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const [project, setProject] = useState<Project>(graph.project);
+  const [milestones, setMilestones] = useState<Milestone[]>(() =>
+    [...graph.milestones].sort((left, right) => left.order - right.order),
+  );
   const [tasks, setTasks] = useState<Task[]>(graph.tasks);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
     graph.milestones[0]?.id ?? null,
   );
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [mutation, setMutation] = useState<"task" | "milestone" | "project" | null>(null);
+  const [taskEditor, setTaskEditor] = useState<{
+    task?: Task;
+    milestoneId: string;
+  } | null>(null);
+  const [milestoneEditor, setMilestoneEditor] = useState<{ milestone?: Milestone } | null>(null);
+  const [showProjectSettings, setShowProjectSettings] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+  const [milestoneToDelete, setMilestoneToDelete] = useState<Milestone | null>(null);
+  const [confirmProjectDelete, setConfirmProjectDelete] = useState(false);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
 
+  const orderedMilestones = useMemo(
+    () => [...milestones].sort((left, right) => left.order - right.order),
+    [milestones],
+  );
   const selectedMilestone =
-    graph.milestones.find((milestone) => milestone.id === selectedMilestoneId) ??
-    graph.milestones[0];
-  const projectProgress = calculateProjectProgress(graph.milestones, tasks);
-  const projectStatus = calculateProjectStatus(graph.milestones, tasks);
-  const experience = calculateExperience(graph.milestones, tasks);
+    orderedMilestones.find((milestone) => milestone.id === selectedMilestoneId) ??
+    orderedMilestones[0];
+  const selectedMilestoneIndex = selectedMilestone
+    ? orderedMilestones.findIndex((milestone) => milestone.id === selectedMilestone.id)
+    : -1;
+  const projectProgress = calculateProjectProgress(orderedMilestones, tasks);
+  const projectStatus = calculateProjectStatus(orderedMilestones, tasks);
+  const experience = calculateExperience(orderedMilestones, tasks);
   const level = calculateLevel(experience);
   const skillSummaries = calculateSkillSummaries(
-    graph.project,
-    graph.milestones,
+    project,
+    orderedMilestones,
     tasks,
     DEFAULT_CHARACTER,
   );
-  const aiReady = canAssignToAi(graph.project, { ...DEFAULT_LOADOUT, projectId: graph.project.id });
+  const aiReady = canAssignToAi(project, { ...DEFAULT_LOADOUT, projectId: project.id });
   const selectedTasks = useMemo(
     () => (selectedMilestone ? tasks.filter((task) => task.milestoneId === selectedMilestone.id) : []),
-    [selectedMilestone, tasks],
+    [selectedMilestone?.id, tasks],
   );
   const activeCount = activeTaskCount(tasks);
 
@@ -897,40 +1358,266 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
     headingRef.current?.focus();
   }, []);
 
-  async function updateTaskStatus(taskId: string, status: TaskStatus) {
+  async function persistTask(updatedTask: Task): Promise<boolean> {
+    setSaveError(null);
+    setMutation("task");
+
+    try {
+      await saveTask(updatedTask);
+      setTasks((current) =>
+        current.some((task) => task.id === updatedTask.id)
+          ? current.map((task) => (task.id === updatedTask.id ? updatedTask : task))
+          : [...current, updatedTask],
+      );
+      return true;
+    } catch (error: unknown) {
+      setSaveError(readableError(error));
+      return false;
+    } finally {
+      setMutation(null);
+    }
+  }
+
+  async function updateTaskStatus(
+    taskId: string,
+    status: TaskStatus,
+    confirmedByHuman = false,
+  ): Promise<void> {
     const currentTask = tasks.find((task) => task.id === taskId);
     if (!currentTask || currentTask.status === status) {
       return;
     }
 
-    const updatedTask = { ...currentTask, status };
-    setSaveError(null);
-
-    try {
-      await saveTask(updatedTask);
-      setTasks((current) => current.map((task) => (task.id === taskId ? updatedTask : task)));
-    } catch (error: unknown) {
-      setSaveError(readableError(error));
-    }
-  }
-
-  async function moveTaskForward(task: Task) {
-    await updateTaskStatus(task.id, advanceTaskStatus(task.status));
-  }
-
-  async function assignTaskToAi(task: Task) {
-    if (!aiReady) {
+    if (status === "done" && currentTask.status !== "review") {
+      setSaveError("퀘스트를 완료하려면 먼저 검토 대기 상태로 이동하세요.");
       return;
     }
 
-    const updatedTask = { ...task, assignee: "ai" as const, status: "doing" as const };
-    setSaveError(null);
+    if (!canTransitionTaskStatus(currentTask, status, { confirmedByHuman })) {
+      if (status !== "done") {
+        setSaveError("이 퀘스트는 현재 상태로 이동할 수 없습니다.");
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `“${currentTask.title}”의 작업 결과를 확인하고 완료 처리할까요?`,
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      confirmedByHuman = true;
+    }
 
     try {
-      await saveTask(updatedTask);
-      setTasks((current) => current.map((item) => (item.id === task.id ? updatedTask : item)));
+      const updatedTask = transitionTaskStatus(currentTask, status, { confirmedByHuman });
+      await persistTask(updatedTask);
     } catch (error: unknown) {
       setSaveError(readableError(error));
+    }
+  }
+
+  async function moveTaskForward(task: Task): Promise<void> {
+    await updateTaskStatus(task.id, advanceTaskStatus(task.status));
+  }
+
+  async function moveTaskBackward(task: Task): Promise<void> {
+    await updateTaskStatus(task.id, retreatTaskStatus(task.status));
+  }
+
+  async function saveTaskDraft(draft: TaskDraft): Promise<boolean> {
+    if (!taskEditor) {
+      return false;
+    }
+
+    const updatedTask: Task = taskEditor.task
+      ? { ...taskEditor.task, ...draft }
+      : {
+          id: crypto.randomUUID(),
+          status: "todo",
+          ...draft,
+        };
+    const saved = await persistTask(updatedTask);
+    if (saved) {
+      setTaskEditor(null);
+    }
+
+    return saved;
+  }
+
+  async function removeTask(): Promise<void> {
+    if (!taskToDelete) {
+      return;
+    }
+
+    const deleting = taskToDelete;
+    setSaveError(null);
+    setMutation("task");
+
+    try {
+      await deleteTask(deleting.id);
+      setTasks((current) => current.filter((task) => task.id !== deleting.id));
+      setTaskToDelete(null);
+    } catch (error: unknown) {
+      setSaveError(readableError(error));
+    } finally {
+      setMutation(null);
+    }
+  }
+
+  async function saveMilestoneDraft(name: string): Promise<boolean> {
+    if (!milestoneEditor) {
+      return false;
+    }
+
+    const existing = milestoneEditor.milestone;
+    const nextMilestone: Milestone = existing
+      ? { ...existing, name }
+      : {
+          id: crypto.randomUUID(),
+          projectId: project.id,
+          name,
+          order: orderedMilestones.length + 1,
+        };
+    setSaveError(null);
+    setMutation("milestone");
+
+    try {
+      await saveMilestone(nextMilestone);
+      setMilestones((current) =>
+        existing
+          ? current.map((milestone) =>
+              milestone.id === existing.id ? nextMilestone : milestone,
+            )
+          : [...current, nextMilestone],
+      );
+      if (!existing) {
+        setSelectedMilestoneId(nextMilestone.id);
+      }
+      setMilestoneEditor(null);
+      return true;
+    } catch (error: unknown) {
+      setSaveError(readableError(error));
+      return false;
+    } finally {
+      setMutation(null);
+    }
+  }
+
+  async function reorderSelectedMilestone(direction: -1 | 1): Promise<void> {
+    if (selectedMilestoneIndex < 0) {
+      return;
+    }
+
+    const targetIndex = selectedMilestoneIndex + direction;
+    const target = orderedMilestones[targetIndex];
+    const current = orderedMilestones[selectedMilestoneIndex];
+    if (!target || !current) {
+      return;
+    }
+
+    const updates = orderedMilestones.map((milestone, index) => {
+      if (index === selectedMilestoneIndex) {
+        return { ...milestone, order: target.order };
+      }
+      if (index === targetIndex) {
+        return { ...milestone, order: current.order };
+      }
+      return milestone;
+    });
+
+    setSaveError(null);
+    setMutation("milestone");
+    try {
+      await Promise.all([saveMilestone(updates[selectedMilestoneIndex]), saveMilestone(updates[targetIndex])]);
+      setMilestones(updates);
+    } catch (error: unknown) {
+      setSaveError(readableError(error));
+    } finally {
+      setMutation(null);
+    }
+  }
+
+  async function removeMilestone(): Promise<void> {
+    if (!milestoneToDelete) {
+      return;
+    }
+
+    const deleting = milestoneToDelete;
+    const deletingIndex = orderedMilestones.findIndex((milestone) => milestone.id === deleting.id);
+    setSaveError(null);
+    setMutation("milestone");
+
+    try {
+      await deleteMilestone(deleting.id);
+      const remainingMilestones = orderedMilestones.filter((milestone) => milestone.id !== deleting.id);
+      setMilestones(remainingMilestones);
+      setTasks((current) => current.filter((task) => task.milestoneId !== deleting.id));
+      setSelectedMilestoneId(
+        remainingMilestones[Math.min(Math.max(deletingIndex, 0), remainingMilestones.length - 1)]?.id ?? null,
+      );
+      setMilestoneToDelete(null);
+    } catch (error: unknown) {
+      setSaveError(readableError(error));
+    } finally {
+      setMutation(null);
+    }
+  }
+
+  async function saveProjectSettings(draft: ProjectSettingsDraft): Promise<boolean> {
+    const repoPath = draft.repoPath.trim();
+    setSaveError(null);
+    setMutation("project");
+
+    try {
+      if (repoPath) {
+        await validateRepoPath(repoPath);
+      }
+
+      const updatedProject: Project = {
+        id: project.id,
+        workspaceId: project.workspaceId,
+        name: draft.name.trim(),
+        skills: draft.skills,
+        ...(repoPath ? { repoPath } : {}),
+      };
+      await saveProject(updatedProject);
+      setProject(updatedProject);
+      setShowProjectSettings(false);
+      return true;
+    } catch (error: unknown) {
+      setSaveError(readableError(error));
+      return false;
+    } finally {
+      setMutation(null);
+    }
+  }
+
+  async function removeProject(): Promise<void> {
+    setSaveError(null);
+    setMutation("project");
+
+    try {
+      await deleteProject(project.id);
+      onProjectDeleted();
+    } catch (error: unknown) {
+      setSaveError(readableError(error));
+    } finally {
+      setMutation(null);
+      setConfirmProjectDelete(false);
+    }
+  }
+
+  function handleDropStatus(status: TaskStatus, taskId: string | null): void {
+    setDraggedTaskId(null);
+    const resolvedTaskId = taskId || draggedTaskId;
+    if (!resolvedTaskId) {
+      return;
+    }
+
+    const task = tasks.find((item) => item.id === resolvedTaskId);
+    if (task) {
+      void updateTaskStatus(task.id, status);
     }
   }
 
@@ -953,7 +1640,12 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
           <button className="topbar-project-button" type="button" onClick={onBackToInbox}>
             인박스
           </button>
-          <button className="icon-button" type="button" aria-label="설정">
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="프로젝트 설정"
+            onClick={() => setShowProjectSettings(true)}
+          >
             ⚙
           </button>
         </div>
@@ -975,7 +1667,7 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
             </div>
             <div>
               <p className="eyebrow">SELECTED EXPEDITION</p>
-              <h2 id="project-title">{graph.project.name}</h2>
+              <h2 id="project-title">{project.name}</h2>
             </div>
           </div>
           <div className="project-stats">
@@ -1003,19 +1695,76 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
           </div>
         )}
 
+        {showProjectSettings && (
+          <ProjectSettingsPanel
+            project={project}
+            submitting={mutation === "project"}
+            onClose={() => setShowProjectSettings(false)}
+            onSubmit={saveProjectSettings}
+            onDelete={() => setConfirmProjectDelete(true)}
+          />
+        )}
+
         <section className="stage-section" aria-labelledby="stage-title">
           <div className="section-heading">
             <div>
               <p className="eyebrow">ROUTE MAP</p>
               <h2 id="stage-title">원정 경로</h2>
             </div>
-            <span className="section-note">앞 스테이지를 통과하면 다음이 열린다</span>
+            <div className="stage-actions">
+              <button
+                className="small-button"
+                type="button"
+                onClick={() => setMilestoneEditor({})}
+                disabled={mutation !== null}
+              >
+                + 스테이지
+              </button>
+              {selectedMilestone && (
+                <>
+                  <button
+                    className="small-button"
+                    type="button"
+                    onClick={() => setMilestoneEditor({ milestone: selectedMilestone })}
+                    disabled={mutation !== null}
+                  >
+                    편집
+                  </button>
+                  <button
+                    className="small-button"
+                    type="button"
+                    onClick={() => setMilestoneToDelete(selectedMilestone)}
+                    disabled={mutation !== null}
+                  >
+                    삭제
+                  </button>
+                  <button
+                    className="small-button"
+                    type="button"
+                    aria-label="선택한 스테이지 위로 이동"
+                    onClick={() => void reorderSelectedMilestone(-1)}
+                    disabled={mutation !== null || selectedMilestoneIndex <= 0}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    className="small-button"
+                    type="button"
+                    aria-label="선택한 스테이지 아래로 이동"
+                    onClick={() => void reorderSelectedMilestone(1)}
+                    disabled={mutation !== null || selectedMilestoneIndex < 0 || selectedMilestoneIndex >= orderedMilestones.length - 1}
+                  >
+                    ↓
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
-          {graph.milestones.length > 0 ? (
+          {orderedMilestones.length > 0 ? (
             <div className="stage-map" role="list" aria-label="프로젝트 마일스톤">
-              {graph.milestones.map((milestone, index) => {
-                const unlocked = isMilestoneUnlocked(milestone.id, graph.milestones, tasks);
+              {orderedMilestones.map((milestone, index) => {
+                const unlocked = isMilestoneUnlocked(milestone.id, orderedMilestones, tasks);
                 const complete = isMilestoneComplete(milestone.id, tasks);
                 const selected = milestone.id === selectedMilestone?.id;
 
@@ -1051,6 +1800,15 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
               <p>이 프로젝트에는 아직 원정 경로가 만들어지지 않았습니다.</p>
             </section>
           )}
+
+          {milestoneEditor && (
+            <MilestoneEditor
+              milestone={milestoneEditor.milestone}
+              submitting={mutation === "milestone"}
+              onCancel={() => setMilestoneEditor(null)}
+              onSubmit={saveMilestoneDraft}
+            />
+          )}
         </section>
 
         {selectedMilestone ? (
@@ -1060,7 +1818,17 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
                 <p className="eyebrow">STAGE {selectedMilestone.order}</p>
                 <h2 id="quest-title">{selectedMilestone.name}</h2>
               </div>
-              <span className="section-note">{selectedTasks.length}개의 퀘스트</span>
+              <div className="quest-heading-actions">
+                <span className="section-note">{selectedTasks.length}개의 퀘스트</span>
+                <button
+                  className="small-button accent"
+                  type="button"
+                  onClick={() => setTaskEditor({ milestoneId: selectedMilestone.id })}
+                  disabled={mutation !== null}
+                >
+                  + 퀘스트
+                </button>
+              </div>
             </div>
 
             <div className="board" aria-label={`${selectedMilestone.name} 상태 보드`}>
@@ -1068,7 +1836,18 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
                 const columnTasks = selectedTasks.filter((task) => task.status === column.status);
 
                 return (
-                  <section className={`quest-column ${column.status}`} key={column.status}>
+                  <section
+                    className={`quest-column ${column.status}`}
+                    key={column.status}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      handleDropStatus(column.status, event.dataTransfer.getData("text/plain"));
+                    }}
+                  >
                     <header className="column-header">
                       <div>
                         <h3>{column.label}</h3>
@@ -1084,9 +1863,12 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
                           <TaskCard
                             key={task.id}
                             task={task}
-                            aiReady={aiReady}
                             onAdvance={() => moveTaskForward(task)}
-                            onAssignAi={() => assignTaskToAi(task)}
+                            onRetreat={() => moveTaskBackward(task)}
+                            onEdit={() => setTaskEditor({ task, milestoneId: task.milestoneId })}
+                            onDelete={() => setTaskToDelete(task)}
+                            onDragStart={() => setDraggedTaskId(task.id)}
+                            onDragEnd={() => setDraggedTaskId(null)}
                           />
                         ))
                       )}
@@ -1097,6 +1879,18 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
             </div>
           </section>
         ) : null}
+
+        {taskEditor && (
+          <TaskEditor
+            key={taskEditor.task?.id ?? "new-task"}
+            task={taskEditor.task}
+            defaultMilestoneId={taskEditor.milestoneId}
+            milestones={orderedMilestones}
+            submitting={mutation === "task"}
+            onCancel={() => setTaskEditor(null)}
+            onSubmit={saveTaskDraft}
+          />
+        )}
 
         <section className="character-sheet" aria-labelledby="character-title">
           <div className="section-heading">
@@ -1173,7 +1967,7 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
                 label="에이전트"
                 value={DEFAULT_LOADOUT.agentTool ?? "비어 있음"}
                 ready={aiReady}
-                detail={graph.project.repoPath ? "실행 준비됨" : "repoPath 연결 대기"}
+                detail={project.repoPath ? "실행 준비됨" : "repoPath 연결 대기"}
               />
               <EquipmentSlot
                 label="소스"
@@ -1194,26 +1988,80 @@ function ProjectBoard({ graph, onBackToInbox }: ProjectBoardProps) {
         </section>
 
         <p className="prototype-note">
-          프로젝트를 명시적으로 선택한 뒤 열리는 데모 원정 보드입니다. 인박스 할 일은 로컬 SQLite에 먼저 저장됩니다.
+          프로젝트를 명시적으로 선택한 뒤 열리는 원정 보드입니다. 퀘스트·스테이지·프로젝트 설정은 로컬 SQLite에 저장됩니다.
         </p>
       </main>
+
+      {taskToDelete && (
+        <ConfirmDialog
+          title="퀘스트를 삭제할까요?"
+          message={`“${taskToDelete.title}”와 연결된 댓글이 함께 삭제됩니다.`}
+          confirmLabel="퀘스트 삭제"
+          busy={mutation === "task"}
+          onCancel={() => setTaskToDelete(null)}
+          onConfirm={removeTask}
+        />
+      )}
+      {milestoneToDelete && (
+        <ConfirmDialog
+          title="스테이지를 삭제할까요?"
+          message={`“${milestoneToDelete.name}”의 퀘스트 ${tasks.filter((task) => task.milestoneId === milestoneToDelete.id).length}개도 함께 삭제됩니다.`}
+          confirmLabel="스테이지 삭제"
+          busy={mutation === "milestone"}
+          onCancel={() => setMilestoneToDelete(null)}
+          onConfirm={removeMilestone}
+        />
+      )}
+      {confirmProjectDelete && (
+        <ConfirmDialog
+          title="프로젝트를 삭제할까요?"
+          message={`“${project.name}”의 모든 스테이지와 퀘스트가 함께 삭제됩니다.`}
+          confirmLabel="프로젝트 삭제"
+          busy={mutation === "project"}
+          onCancel={() => setConfirmProjectDelete(false)}
+          onConfirm={removeProject}
+        />
+      )}
     </div>
   );
 }
 
 interface TaskCardProps {
   task: Task;
-  aiReady: boolean;
   onAdvance: () => void | Promise<void>;
-  onAssignAi: () => void | Promise<void>;
+  onRetreat: () => void | Promise<void>;
+  onEdit: () => void;
+  onDelete: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
 }
 
-function TaskCard({ task, aiReady, onAdvance, onAssignAi }: TaskCardProps) {
+function TaskCard({
+  task,
+  onAdvance,
+  onRetreat,
+  onEdit,
+  onDelete,
+  onDragStart,
+  onDragEnd,
+}: TaskCardProps) {
+  const previousStatus = retreatTaskStatus(task.status);
   const nextStatus = advanceTaskStatus(task.status);
+  const previousLabel = STATUS_COLUMNS.find((column) => column.status === previousStatus)?.label;
   const nextLabel = STATUS_COLUMNS.find((column) => column.status === nextStatus)?.label;
 
   return (
-    <article className={`quest-card ${task.status} ${task.blocked ? "blocked" : ""}`}>
+    <article
+      className={`quest-card ${task.status} ${task.blocked ? "blocked" : ""}`}
+      draggable
+      aria-label={`${task.title}, ${STATUS_COLUMNS.find((column) => column.status === task.status)?.label}`}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", task.id);
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+    >
       <div className="card-meta">
         <span className="card-status">{STATUS_COLUMNS.find((column) => column.status === task.status)?.label}</span>
         <span className="card-assignee">{task.assignee === "ai" ? "AI" : "나"}</span>
@@ -1224,25 +2072,21 @@ function TaskCard({ task, aiReady, onAdvance, onAssignAi }: TaskCardProps) {
         {task.skills.map((skill) => (
           <span key={skill}>#{skill}</span>
         ))}
-        {task.assignee === "ai" && <span className="return-badge">AI 귀환</span>}
+        {task.blocked && <span className="blocked-badge">BLOCKED</span>}
       </div>
       <div className="card-actions">
+        {task.status !== "todo" && (
+          <button className="advance-button retreat-button" type="button" onClick={() => void onRetreat()}>
+            이전: {previousLabel}
+          </button>
+        )}
         {task.status !== "done" && (
           <button className="advance-button" type="button" onClick={() => void onAdvance()}>
-            다음: {nextLabel}
+            {nextStatus === "done" ? "완료 확인" : `다음: ${nextLabel}`}
           </button>
         )}
-        {task.status !== "done" && (
-          <button
-            className="ai-button"
-            type="button"
-            disabled={!aiReady || task.assignee === "ai"}
-            title={aiReady ? "Claude에게 작업을 맡깁니다" : "프로젝트 repoPath를 먼저 연결하세요"}
-            onClick={() => void onAssignAi()}
-          >
-            {task.assignee === "ai" ? "실행 중" : "AI에게 맡기기"}
-          </button>
-        )}
+        <button className="row-action" type="button" onClick={onEdit}>편집</button>
+        <button className="row-action danger" type="button" onClick={onDelete}>삭제</button>
       </div>
     </article>
   );
