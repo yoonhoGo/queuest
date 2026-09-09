@@ -22,9 +22,10 @@ packages/plugin-contracts 외부 플러그인 manifest·프로토콜·정규화 
 packages/plugin-sdk       외부 프로세스 플러그인용 JSON 프로토콜 SDK
 packages/plugin-manager  플러그인 발견·검증·수명주기·stdio 전송 런타임
 packages/plugin-permissions 권한 정규화·승인 브로커·Credential Store 경계
+packages/plugin-github   GitHub API 읽기 전용 process connector
 packages/adapter-sqlite   Tauri SQL 기반 로컬 SQLite 어댑터
 packages/adapter-claude   claude -p 실행 어댑터
-packages/adapter-github   기존 GitHub 경계 어댑터 (플러그인 전환 예정)
+packages/adapter-github   기존 GitHub 경계 어댑터 (UI 흐름 전환 예정)
 ```
 
 ## 시작
@@ -55,4 +56,7 @@ npm run check
 - XP·레벨·스킬은 저장하지 않고 태스크와 마일스톤에서 계산합니다.
 - AI 실행 결과는 `review`로 돌아오며 `done` 처리는 사람의 몫입니다.
 - 외부 연동은 플러그인에서 앱으로 가져오는 단방향 흐름부터 둡니다.
+- GitHub connector는 `com.queuest.github` plugin namespace와 `connectionId`를 조합한
+  Credential Store 항목을 읽고, GitHub REST GET만 수행합니다. UI에서 외부 이슈를 로컬
+  Task로 가져오거나 GitHub에 쓰는 흐름은 아직 연결하지 않습니다.
 - 커밋·푸시·클라우드 동기화·팀 공유는 이 초기화 범위에 포함하지 않습니다.

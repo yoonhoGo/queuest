@@ -100,7 +100,7 @@ Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일�
 - [x] 프로세스 플러그인 JSON 프로토콜 계약
 - [x] 외부 프로세스 플러그인용 SDK와 계약 테스트
 - [x] GitHub·Jira 작업 항목과 Calendar 일정의 정규화 모델 분리
-- [ ] GitHub API 플러그인
+- [x] GitHub API 플러그인
 - [ ] Jira API 플러그인
 - [ ] Calendar API 플러그인
 - [x] Plugin Manager의 발견·검증·설치 상태·활성화·비활성화
@@ -118,20 +118,42 @@ manifest는 사용자가 선택한 권한을 명시적으로 승인하기 전에
 초기화 메시지에는 승인된 권한의 부분집합만 전달한다. Memory/원자적 JSON 승인 저장소와
 실제 `/usr/bin/security` 기반 macOS Keychain Credential Store를 제공하고, credential
 오류와 로그에는 secret 값을 포함하지 않는다. 다만 provider API, Credential Store를
-실제 provider 흐름에 연결하는 작업, 권한 승인·플러그인 설정 UI는 후속 단계이며,
-transport 취소와 응답 크기 제한도 후속 경계로 남아 있다.
+실제 Jira·Calendar provider 흐름에 연결하는 작업, 권한 승인·플러그인 설정 UI는 후속
+단계이며, transport 취소와 응답 크기 제한도 후속 경계로 남아 있다.
+
+`@queuest/plugin-github`는 이 단계의 첫 실제 Connector다. 고정된
+`https://api.github.com`에서 issues와 user endpoint를 GET으로 호출하고, `com.queuest.github`
+namespace와 `connectionId`로 찾은 credential을 bearer token으로 사용한다. manifest의
+`api.github.com` network와 `github` secret 권한을 모두 승인하기 전에는 credential/API를
+사용하지 않으며, owner/repository와 숫자 page cursor만 입력으로 받아 모든 issue 상태를
+페이지 단위로 조회한다. GitHub issues 응답의 pull request는 제외하고
+`ExternalWorkItem`으로 변환하며, auth·not-found·rate-limit·HTTP·malformed-response·
+credential 오류는 안전한 typed error/connection state로 매핑한다. 응답 변환·보안 경계는
+주입 fetch와 MemoryCredentialStore 단위 테스트로, manifest 발견·권한 거부·실제 Node
+process initialize/health/shutdown은 Plugin Manager process E2E로 검증한다.
+
+이 완료는 API Connector 범위에 한정된다. 가져오기 메뉴, 대상 마일스톤 선택, 외부 항목을
+로컬 Task로 저장하는 UI 흐름과 `externalRef` 중복 방지는 아직 구현하지 않았고, GitHub에
+수정 내용을 되돌려 쓰는 create/update/close/comment 작업도 읽기 전용 범위 밖의 후속
+단계로 남긴다.
 
 완료 조건: 내장 플러그인과 사용자 설치 플러그인이 동일한 manifest·프로토콜로
 검증되고, 앱 본체가 플러그인의 구현이나 외부 API 타입을 직접 의존하지 않는다.
 
-### 8. GitHub Issues 가져오기
+### 8. GitHub Issues 가져오기(UI·Host 흐름)
+
+`@queuest/plugin-github`의 조회·응답 변환 완료와 별개로, 다음 항목은 플러그인을 호출해
+외부 결과를 UI와 로컬 Task에 연결하는 작업이다.
 
 - [ ] 가져오기 메뉴와 대상 마일스톤 선택
-- [ ] GitHub API 인증으로 열린/닫힌 이슈 가져오기
-- [ ] OPEN/CLOSED를 앱 상태로 매핑
+- [ ] UI에서 GitHub API 인증으로 열린/닫힌 이슈 가져오기
+- [ ] 가져온 항목의 OPEN/CLOSED를 로컬 Task 상태로 매핑
 - [ ] `externalRef` 기반 중복 방지
 - [ ] 이슈 원본 URL 열기
 - [ ] 인증·저장소·네트워크 오류 안내
+
+이 단계에서는 외부 서비스로의 쓰기 작업을 추가하지 않는다. GitHub issue 생성·수정·종료·
+댓글 등 provider write operation은 읽기 전용 동기화가 안정화된 뒤 별도로 설계한다.
 
 완료 조건: 같은 저장소에서 가져오기를 반복해도 동일 이슈가 중복 카드로 생성되지 않는다.
 
@@ -139,7 +161,8 @@ transport 취소와 응답 크기 제한도 후속 경계로 남아 있다.
 
 - [x] 도메인 계산·상태 전이 단위 테스트
 - [x] SQLite 저장·재실행·cascade 테스트
-- [ ] GitHub 응답 변환·중복 방지 테스트
+- [x] GitHub 응답 변환 테스트 (`@queuest/plugin-github`)
+- [ ] 로컬 Task `externalRef` 중복 방지 테스트
 - [ ] AI 결과 변환·취소·오류 테스트
 - [ ] 키보드 포커스·접근성 라벨·색상 외 상태 표현 점검
 - [ ] 빈 프로젝트·태스크가 많은 프로젝트·도구 미설치 상태 점검

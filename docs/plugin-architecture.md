@@ -49,15 +49,16 @@ manifest 요청과 승인된 권한의 교집합만 전달한다. 권한을 선�
 `MemoryCredentialStore`와 실제 macOS `security` 명령을 execFile 스타일 인자 배열로
 호출하는 `MacOSKeychainCredentialStore`가 있다. Keychain service/account는 plugin
 namespace로 분리하고 set/get/delete와 missing-item 오류를 제공하며, command 오류와
-로그는 secret 값을 보존하거나 노출하지 않는다. 이 adapter 자체는 구현되어 있지만,
-provider API와 실제 provider 흐름에 연결하는 일은 아직 남아 있다.
+로그는 secret 값을 보존하거나 노출하지 않는다. 이 adapter는 구현되어 있으며,
+첫 실제 구현인 `@queuest/plugin-github`가 이 경계를 사용해 GitHub REST 읽기 흐름까지
+연결한다. Jira·Calendar provider 흐름과 승인·설정 UI 연결은 아직 남아 있다.
 
-별도 프로세스는 격리의 경계이지 완전한 보안 샌드박스가 아니다. 플러그인 프로세스가
-운영체제의 네트워크·파일 시스템 권한을 그대로 가지지 않도록 Connector 플러그인은
-Host가 중개하는 API와 승인된 Keychain 연결만 사용하게 한다. Permission Broker는
-manifest 권한에 대한 Host 정책 경계이며, OS-level network/filesystem sandbox를
-구현하지는 않는다. 강한 권한이 필요한 플러그인은 Trusted 플러그인으로 분류하고
-설치 시 별도 신뢰 확인을 거친다.
+별도 프로세스는 격리의 경계이지 완전한 보안 샌드박스가 아니다. Connector 플러그인은
+manifest에 선언하고 승인받은 네트워크·secret 권한과 Credential Store adapter를 통해서만
+외부 API와 credential을 사용하도록 구현한다. Permission Broker는 manifest 권한에 대한
+Host 정책 경계이며, OS-level network/filesystem sandbox를 구현하지는 않는다. 강한
+권한이 필요한 플러그인은 Trusted 플러그인으로 분류하고 설치 시 별도 신뢰 확인을
+거친다.
 
 ## Capability
 
@@ -65,7 +66,7 @@ manifest 권한에 대한 Host 정책 경계이며, OS-level network/filesystem 
 
 | Capability | 의미 | 첫 구현 |
 | --- | --- | --- |
-| `source.work-items` | 외부 작업 항목을 페이지 단위로 조회 | GitHub, Jira |
+| `source.work-items` | 외부 작업 항목을 페이지 단위로 조회 | GitHub (`@queuest/plugin-github`), Jira |
 | `source.calendar-events` | 기간·캘린더 기준으로 일정 조회 | Calendar |
 | `agent.runner` | 태스크를 실행하고 취소 | AI 단계에서 추가 |
 
@@ -82,11 +83,12 @@ Calendar 일정은 Task와 의미가 다르므로 `CalendarEvent`로 별도 저�
   "schemaVersion": 1,
   "id": "com.queuest.github",
   "name": "GitHub",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "hostApi": "^1.0.0",
   "entry": {
     "type": "process",
-    "command": "./bin/queuest-github"
+    "command": "node",
+    "args": ["--experimental-strip-types", "bin/queuest-github.mjs"]
   },
   "capabilities": ["source.work-items"],
   "permissions": {
@@ -110,6 +112,15 @@ Calendar 일정은 Task와 의미가 다르므로 `CalendarEvent`로 별도 저�
 `PLUGIN_PERMISSION_APPROVAL_REQUIRED` 오류로 끝나며, 플러그인 프로세스는 생성되지
 않는다.
 
+첫 실제 Connector인 `@queuest/plugin-github`는 고정된
+`https://api.github.com` base URL과 `application/vnd.github+json`,
+`X-GitHub-Api-Version: 2022-11-28` 헤더를 사용한다. `source.work-items.list`는
+`/repos/{owner}/{repository}/issues?state=all&per_page=100&page={page}`를 GET하고,
+GitHub의 Link 헤더에서 다음 숫자 page만 읽어 다시 고정 경로를 만든다. 입력은
+`owner/repository`와 opaque numeric page cursor로 제한되어 arbitrary URL이나 host를
+요청에 주입할 수 없다. issues endpoint에 함께 반환되는 pull request는
+`pull_request` discriminator가 있으면 제외한 뒤 `ExternalWorkItem`으로 매핑한다.
+
 ## 프로토콜
 
 프로세스는 한 줄에 하나의 JSON 메시지를 주고받는다.
@@ -128,8 +139,13 @@ shutdown
 모든 요청과 응답은 `protocolVersion`, `id`를 포함한다. 최소 수직 슬라이스의 Host
 transport는 request id 상관관계, 요청 타임아웃, 잘못된 JSON·응답과 일치하지 않는
 응답의 격리, 프로세스 종료, stderr 로그, `shutdown` 후 graceful exit를 처리하고,
-플러그인 오류를 앱 오류와 분리해서 전달한다. `initialize`에는 승인된 권한의
-부분집합만 전달하며, Credential Store command 오류에는 secret 값이 포함되지 않는다.
+플러그인 오류를 앱 오류와 분리해서 전달한다. GitHub process의 `initialize`는 승인된
+`network: ["api.github.com"]`와 `secrets: ["github"]`를 확인한 뒤 초기화하고,
+`health.check`는 권한과 초기화 상태만 확인하며 네트워크 요청이나 Credential Store
+조회를 하지 않는다. 실제 연결 확인(`connection.status`)은 credential을 읽어 GitHub
+`/user`를 GET하고, 작업 항목 조회만 issues endpoint를 사용한다. `initialize`에는
+승인된 권한의 부분집합만 전달하며, Credential Store command 오류에는 secret 값이
+포함되지 않는다.
 Plugin transport는 플러그인이 보낸 stderr를 진단 로그로 전달하므로 credential 값을
 stderr에 쓰지 않는 것이 플러그인 경계의 규칙이며, transport 자체는 secret redaction
 계층이 아니다. 취소 신호와 응답 크기 제한은 아직 후속 transport 경계로 남아 있다.
@@ -180,12 +196,19 @@ ProjectIntegration.repository    owner/repository 또는 Jira project key
 ProjectIntegration.connectionId  Keychain에 저장된 연결 참조
 ```
 
-API 토큰은 SQLite·manifest·로그에 저장하지 않는다. Calendar OAuth, Jira API token,
-GitHub OAuth/PAT는 Host의 Credential Store가 관리하며 플러그인에는 필요한 연결
-범위만 전달한다. 현재 Credential Store에는 memory 구현과 macOS Keychain adapter가
-있고, Keychain command는 shell 없이 `/usr/bin/security`를 execFile 스타일 인자
-배열로 실행하며 wrapped 오류·로그에 secret을 포함하지 않는다. Provider API가 이 credential 경계를
-실제로 사용하는 흐름과 UI는 아직 구현하지 않는다.
+API 토큰은 SQLite·manifest·프로토콜 로그에 저장하지 않는다. Calendar OAuth, Jira API
+token, GitHub OAuth/PAT는 Host의 Credential Store가 관리하며 플러그인에는 필요한 연결
+범위만 전달한다. GitHub는 논리적으로
+`{ pluginId: "com.queuest.github", name: connectionId }` credential을 조회한다.
+기본 macOS Keychain namespace에서는 service가
+`com.yoonhogo.queuest.credentials.plugin.com.queuest.github`, account가
+`com.yoonhogo.queuest.credentials.plugin.com.queuest.github.<connectionId>`로
+생성된다. 테스트의 `MemoryCredentialStore`도 같은 plugin ID와 connection ID 조합으로
+격리한다. 현재 Credential Store에는 memory 구현과 macOS Keychain adapter가 있고,
+Keychain command는 shell 없이 `/usr/bin/security`를 execFile 스타일 인자 배열로
+실행하며 wrapped 오류·로그에 secret을 포함하지 않는다. GitHub connector는
+credential을 bearer Authorization 헤더에만 사용하고, 오류·stderr·로그·프로토콜
+결과에 token 값을 포함하지 않는다.
 
 ## 보안 등급
 
@@ -195,8 +218,15 @@ GitHub·Jira·Calendar 같은 API 조회 플러그인이다.
 
 - 파일 시스템 접근 없음
 - 선언한 API 도메인만 사용
-- 토큰 직접 접근 없음
+- 토큰은 Credential Store를 통해서만 읽고 SQLite·manifest·로그·프로토콜로 복제하지 않음
 - 읽기 전용 동기화부터 시작
+
+GitHub Connector의 현재 read-only scope는 issue 목록(`state=all`, pagination)과 연결
+상태(`GET /user`) 확인이다. create/update/close/comment 같은 provider write operation,
+그리고 조회 결과를 UI에서 선택한 마일스톤의 로컬 Task로 저장하거나
+`externalRef`로 중복 제거하는 Host 흐름은 아직 후속 단계다. 이 범위를 지키기 위해
+manifest에는 `api.github.com` network와 `github` secret만 선언하고 filesystem 권한은
+선언하지 않는다.
 
 ### Trusted
 
@@ -217,11 +247,13 @@ AI 실행, 로컬 명령, 파일 변환처럼 강한 권한이 필요한 플러�
 3. Plugin Manager의 발견·검증·수명주기 (완료)
 4. Host 중개 인증·권한·로그 — Permission Broker, 승인 저장소, Keychain adapter,
    명시적 승인 전 활성화 차단, secret 비노출 경계까지 완료
-5. GitHub API 플러그인 (후속)
+5. GitHub API 플러그인 (완료: REST mapping, auth/permission boundary, pagination, safe errors, process E2E)
 6. Jira API 플러그인 (후속)
 7. Calendar API 플러그인 (후속)
 8. 사용자 설치·권한 승인 UI와 업데이트 (후속)
 9. `agent.runner` 기반 AI 플러그인
 
-외부 서비스에서 Queuest로 가져오는 단방향 흐름을 먼저 유지한다. 외부 서비스에
-수정 내용을 되돌려 쓰는 기능은 각 capability가 안정화된 뒤 별도로 설계한다.
+외부 서비스에서 Queuest로 가져오는 단방향 흐름을 먼저 유지한다. GitHub connector의
+API 조회·변환은 완료했지만 UI import와 local Task deduplication은 아직 구현하지
+않았다. 외부 서비스에 수정 내용을 되돌려 쓰는 provider write 기능은 각 capability가
+안정화된 뒤 별도로 설계한다.
