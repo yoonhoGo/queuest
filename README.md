@@ -24,6 +24,7 @@ packages/plugin-manager  플러그인 발견·검증·수명주기·stdio 전송
 packages/plugin-permissions 권한 정규화·승인 브로커·Credential Store 경계
 packages/plugin-github   GitHub API 읽기 전용 process connector
 packages/plugin-jira     Jira Cloud API 읽기 전용 process connector
+packages/plugin-calendar Google Calendar 읽기 전용 process connector
 packages/adapter-sqlite   Tauri SQL 기반 로컬 SQLite 어댑터
 packages/adapter-claude   claude -p 실행 어댑터
 packages/adapter-github   기존 GitHub 경계 어댑터 (UI 흐름 전환 예정)
@@ -81,5 +82,27 @@ npm run check
   읽지 않으며, credential/auth/not-found/rate-limit/HTTP/malformed/network 실패는 token을
   노출하지 않는 typed error와 connection state로 전달합니다. UI import와 local Task 저장,
   `externalRef` deduplication, provider write, OAuth/3LO, self-hosted Jira/Data Center 지원은
+  아직 연결하지 않습니다.
+- Google Calendar connector는 `com.queuest.calendar` plugin namespace와 `connectionId`를
+  조합한 Credential Store 항목을 읽고, 다음 JSON credential의 `accessToken`만 사용합니다.
+
+  ```json
+  {"accessToken":"<oauth-access-token>"}
+  ```
+
+  기본 macOS Keychain namespace는 service
+  `com.yoonhogo.queuest.credentials.plugin.com.queuest.calendar`, account
+  `com.yoonhogo.queuest.credentials.plugin.com.queuest.calendar.<connectionId>`입니다.
+  manifest는 `network: ["www.googleapis.com"]`와 `secrets: ["calendar"]`만 선언하며
+  filesystem 권한은 없습니다. 두 권한을 모두 승인한 뒤에만 credential/API를 사용하고,
+  고정된 Google Calendar API에서 기간·캘린더별 일정 목록을 GET으로 조회합니다. timed/all-day
+  event와 `confirmed`·`tentative`·`cancelled` 상태, 원본 URL·수정 시각을
+  `ExternalCalendarEvent`로 매핑하며 `maxResults=2500`과 bounded opaque page cursor를 사용합니다.
+  `health.check`는 초기화·권한만 확인하고 credential/API를 읽지 않으며,
+  `connection.status`만 credential을 읽어 primary calendar를 확인합니다. credential/auth/
+  not-found/rate-limit/HTTP/malformed/network 실패는 token을 노출하지 않는 typed error와
+  connection state로 전달합니다. OAuth 동의·authorization code 교환·token refresh와
+  `accessToken`을 Credential Store에 넣는 provisioning은 Host/UI 경계이며 이 read-only
+  connector에 포함하지 않습니다. 일정 쓰기, UI import, CalendarEvent 저장과 Task 변환도
   아직 연결하지 않습니다.
 - 커밋·푸시·클라우드 동기화·팀 공유는 이 초기화 범위에 포함하지 않습니다.

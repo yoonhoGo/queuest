@@ -52,7 +52,8 @@ namespace로 분리하고 set/get/delete와 missing-item 오류를 제공하며,
 로그는 secret 값을 보존하거나 노출하지 않는다. 이 adapter는 구현되어 있으며,
 첫 실제 구현인 `@queuest/plugin-github`가 이 경계를 사용해 GitHub REST 읽기 흐름까지
 연결한다. `@queuest/plugin-jira`도 같은 경계를 사용해 Atlassian Cloud REST 읽기 흐름과
-process E2E까지 연결했으며, Calendar provider 흐름과 승인·설정 UI 연결은 아직 남아 있다.
+process E2E까지 연결했고, `@queuest/plugin-calendar`도 Google Calendar REST 읽기 흐름과
+process E2E까지 연결했다. 승인·설정 UI 연결은 아직 남아 있다.
 
 별도 프로세스는 격리의 경계이지 완전한 보안 샌드박스가 아니다. Connector 플러그인은
 manifest에 선언하고 승인받은 네트워크·secret 권한과 Credential Store adapter를 통해서만
@@ -68,7 +69,7 @@ Host 정책 경계이며, OS-level network/filesystem sandbox를 구현하지는
 | Capability | 의미 | 첫 구현 |
 | --- | --- | --- |
 | `source.work-items` | 외부 작업 항목을 페이지 단위로 조회 | GitHub (`@queuest/plugin-github`), Jira |
-| `source.calendar-events` | 기간·캘린더 기준으로 일정 조회 | Calendar |
+| `source.calendar-events` | 기간·캘린더 기준으로 일정 조회 | Google Calendar (`@queuest/plugin-calendar`) |
 | `agent.runner` | 태스크를 실행하고 취소 | AI 단계에서 추가 |
 
 GitHub와 Jira의 결과는 외부 작업 항목으로 반환한 뒤 Host가 Task로 변환한다.
@@ -126,6 +127,35 @@ Jira Cloud Connector의 manifest는 다음과 같이 최소 권한만 선언한�
 Jira manifest는 filesystem 권한을 선언하지 않는다. Plugin Manager process E2E는 이
 manifest를 실제 package에서 발견하고, 두 권한 승인 전에는 child process를 시작하지
 않는지 확인한 뒤, 승인 후 실제 Node entrypoint를 실행한다.
+
+Google Calendar Connector의 manifest도 일정 조회에 필요한 최소 권한만 선언한다.
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "com.queuest.calendar",
+  "name": "Google Calendar",
+  "version": "0.1.0",
+  "hostApi": "^1.0.0",
+  "entry": {
+    "type": "process",
+    "command": "node",
+    "args": ["--experimental-strip-types", "bin/queuest-calendar.mjs"]
+  },
+  "capabilities": ["source.calendar-events"],
+  "permissions": {
+    "network": ["www.googleapis.com"],
+    "secrets": ["calendar"]
+  },
+  "configSchema": {}
+}
+```
+
+Calendar manifest는 filesystem 권한을 선언하지 않는다. Plugin Manager process E2E는 이
+manifest를 실제 package에서 발견하고, network·secret 권한 승인 전에는 child process를
+시작하지 않는지 확인한 뒤, 승인 후 실제 Node entrypoint의 initialize·health.check·shutdown을
+검증한다. `health.check`는 의도적으로 Calendar credential을 읽거나 Google에 접속하지 않는
+offline 확인이다.
 
 필수 검증 대상은 다음과 같다.
 
@@ -185,6 +215,21 @@ cursor로 전달하고 `isLast`가 false면 다음 페이지를 요청하며, �
 offline 메서드라서 Jira 네트워크나 Credential Store를 호출하지 않는다. process E2E는
 실제 initialize, 이 offline health check, clean shutdown을 함께 검증한다.
 
+Calendar process의 `initialize`는 `network: ["www.googleapis.com"]`와
+`secrets: ["calendar"]`가 모두 승인된 경우에만 성공한다.
+`source.calendar-events.list`는 고정된
+`GET /calendar/v3/calendars/{calendarId}/events` 경로에 `timeMin`, `timeMax`,
+`singleEvents=true`, `orderBy=startTime`, `maxResults=2500`과 page cursor를 적용한다.
+입력 calendar ID와 RFC3339 시간 범위는 URL 주입과 잘못된 범위를 막도록 검증하고, 여러
+calendar ID를 조회할 때는 calendar별 Google `nextPageToken`을 opaque composite cursor로
+보존한다. timed/all-day event의 `id`, `summary`, `start`, `end`, `status`, `htmlLink`,
+`updated`를 `ExternalCalendarEvent`의 external ID·title·시각·all-day·status·source URL·
+updatedAt로 변환하며, `confirmed`·`tentative`·`cancelled` 외 상태나 malformed response는
+typed 오류로 처리한다. `connection.status`만 credential을 읽어 고정된
+`GET /calendar/v3/calendars/primary`를 호출하고, `health.check`는 초기화·권한만 확인하는
+offline 메서드다. credential/auth/not-found/rate-limit/HTTP/malformed-response/network
+실패는 token/API response를 오류 message·stderr·로그·protocol 응답에 복제하지 않는다.
+
 Plugin transport는 플러그인이 보낸 stderr를 진단 로그로 전달하므로 credential 값을
 stderr에 쓰지 않는 것이 플러그인 경계의 규칙이며, transport 자체는 secret redaction
 계층이 아니다. 취소 신호와 응답 크기 제한은 아직 후속 transport 경계로 남아 있다.
@@ -235,8 +280,8 @@ ProjectIntegration.repository    owner/repository 또는 Jira project key
 ProjectIntegration.connectionId  Keychain에 저장된 연결 참조
 ```
 
-API 토큰은 SQLite·manifest·프로토콜 로그에 저장하지 않는다. Calendar OAuth, Jira API
-token, GitHub OAuth/PAT는 Host의 Credential Store가 관리하며 플러그인에는 필요한 연결
+API 토큰은 SQLite·manifest·프로토콜 로그에 저장하지 않는다. Calendar OAuth access token,
+Jira API token, GitHub OAuth/PAT는 Host의 Credential Store가 관리하며 플러그인에는 필요한 연결
 범위만 전달한다. GitHub는 논리적으로
 `{ pluginId: "com.queuest.github", name: connectionId }` credential을 조회한다.
 기본 macOS Keychain namespace에서는 service가
@@ -269,6 +314,27 @@ fragment, userinfo와 임의 host를 거부하므로 credential이나 project in
 authority/path를 주입할 수 없다. Jira 요청은 고정된 v3 API 경로와
 `Authorization: Basic <base64(email:apiToken)>`, `Accept: application/json`,
 `Content-Type: application/json`, stable `User-Agent: Queuest Jira Plugin/0.1.0`을 사용한다.
+
+Google Calendar는 논리적으로 `{ pluginId: "com.queuest.calendar", name: connectionId }`
+credential을 조회하며, Credential Store에는 다음 JSON 문자열을 저장한다.
+
+```json
+{
+  "accessToken": "<oauth-access-token>"
+}
+```
+
+기본 macOS Keychain namespace에서 Calendar의 service는
+`com.yoonhogo.queuest.credentials.plugin.com.queuest.calendar`, account는
+`com.yoonhogo.queuest.credentials.plugin.com.queuest.calendar.<connectionId>`다. connector는
+승인된 `www.googleapis.com` network와 `calendar` secret 권한이 모두 있을 때만 이 값을
+읽고, `Authorization: Bearer <accessToken>` 헤더로 고정된 Google Calendar API에 GET 요청을
+보낸다. SQLite·manifest·protocol 로그에는 token을 복제하지 않는다.
+
+OAuth 동의 화면, authorization code 교환, refresh token 관리와 Credential Store
+provisioning은 Host/UI의 경계다. Calendar connector는 이미 provisioned 된 access token을
+읽고 검증·사용하는 read-only process일 뿐이며, OAuth 흐름이나 일정 쓰기 API를 구현하지
+않는다.
 
 ## 보안 등급
 
@@ -304,6 +370,17 @@ rate-limit, HTTP, malformed response, network failure는 token/API response를 �
 Task 저장과 `externalRef` deduplication, Jira provider write, OAuth/3LO, self-hosted
 Jira/Data Center는 후속 범위다.
 
+Google Calendar Connector의 read-only scope는 기간·calendar ID 기반 일정 목록과
+`GET /calendar/v3/calendars/primary` 연결 상태 확인이다. Google event는
+`providerId: "google-calendar"`, connection ID, external ID, calendar ID, title, 시작·종료
+시각, all-day 여부와 `confirmed`·`tentative`·`cancelled` 상태, 선택적 source URL·updatedAt를
+가진 `ExternalCalendarEvent`로 매핑한다. `www.googleapis.com` network와 `calendar` secret만
+선언하며 filesystem 권한은 없다. permission, missing/malformed credential, auth, not-found,
+rate-limit, HTTP, malformed response, network failure는 token/API response를 포함하지 않는
+`CalendarPluginError` typed error와 안전한 `connection.status` state로 변환한다. 일정 쓰기,
+UI import, CalendarEvent 로컬 저장·Task 변환과 OAuth/consent/token refresh/provisioning은
+후속 Host/UI 범위다.
+
 ### Trusted
 
 AI 실행, 로컬 명령, 파일 변환처럼 강한 권한이 필요한 플러그인이다.
@@ -326,12 +403,15 @@ AI 실행, 로컬 명령, 파일 변환처럼 강한 권한이 필요한 플러�
 5. GitHub API 플러그인 (완료: REST mapping, auth/permission boundary, pagination, safe errors, process E2E)
 6. Jira API 플러그인 (완료: Atlassian Cloud read-only REST mapping, Basic API-token auth,
    permission boundary, enhanced JQL pagination, safe errors, offline health, process E2E)
-7. Calendar API 플러그인 (후속)
+7. Calendar API 플러그인 (완료: Google Calendar read-only REST mapping, Bearer access-token
+   auth, permission boundary, timed/all-day event mapping, pagination, safe errors, offline
+   health, process E2E)
 8. 사용자 설치·권한 승인 UI와 업데이트 (후속)
 9. `agent.runner` 기반 AI 플러그인
 
-외부 서비스에서 Queuest로 가져오는 단방향 흐름을 먼저 유지한다. GitHub와 Jira
-connector의 API 조회·변환은 완료했지만 UI import와 local Task deduplication은 아직
-구현하지 않았다. 외부 서비스에 수정 내용을 되돌려 쓰는 provider write 기능은 각
-capability가 안정화된 뒤 별도로 설계하며, Jira OAuth/3LO와 self-hosted Jira/Data Center
-지원도 후속 범위다.
+외부 서비스에서 Queuest로 가져오는 단방향 흐름을 먼저 유지한다. GitHub, Jira와 Google
+Calendar connector의 API 조회·변환은 완료했지만 UI import와 local Task/CalendarEvent 저장,
+`externalRef` deduplication은 아직 구현하지 않았다. 외부 서비스에 수정 내용을 되돌려
+쓰는 provider write 기능은 각 capability가 안정화된 뒤 별도로 설계하며, Google Calendar
+OAuth 동의·token refresh·credential provisioning과 Jira OAuth/3LO, self-hosted Jira/Data
+Center 지원도 후속 Host/UI 범위다.
