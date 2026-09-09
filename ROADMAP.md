@@ -104,14 +104,22 @@ Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일�
 - [ ] Jira API 플러그인
 - [ ] Calendar API 플러그인
 - [x] Plugin Manager의 발견·검증·설치 상태·활성화·비활성화
-- [ ] 권한 브로커와 Keychain 연결 저장소
+- [x] 권한 브로커·승인 저장소와 macOS Keychain Credential Store 경계
 - [ ] 플러그인 설정 JSON Schema 기반 화면
-- [ ] 플러그인 프로세스 타임아웃·취소·로그 경계
+- [x] 플러그인 프로세스 타임아웃·stderr·graceful shutdown·로그 경계
+- [ ] 플러그인 프로세스 취소·응답 크기 제한
 
 현재 Plugin Manager 최소 수직 슬라이스는 내장·사용자 디렉터리의 manifest 검증,
 Host API 호환성 확인, reversible lifecycle state, process stdio transport와
-mock-plugin E2E를 제공한다. transport timeout·stderr·graceful shutdown은 포함되며,
-취소와 응답 크기 제한은 후속 경계로 남아 있다.
+mock-plugin E2E를 제공한다. `@queuest/plugin-permissions`는 manifest의 network·secret·
+filesystem 권한을 정규화하고 requested/granted/missing 상태를 비교한다. permissioned
+manifest는 사용자가 선택한 권한을 명시적으로 승인하기 전에는 `activatePlugin`이
+프로세스를 spawn하지 않으며, 새로 요청된 권한도 같은 방식으로 다시 승인해야 한다.
+초기화 메시지에는 승인된 권한의 부분집합만 전달한다. Memory/원자적 JSON 승인 저장소와
+실제 `/usr/bin/security` 기반 macOS Keychain Credential Store를 제공하고, credential
+오류와 로그에는 secret 값을 포함하지 않는다. 다만 provider API, Credential Store를
+실제 provider 흐름에 연결하는 작업, 권한 승인·플러그인 설정 UI는 후속 단계이며,
+transport 취소와 응답 크기 제한도 후속 경계로 남아 있다.
 
 완료 조건: 내장 플러그인과 사용자 설치 플러그인이 동일한 manifest·프로토콜로
 검증되고, 앱 본체가 플러그인의 구현이나 외부 API 타입을 직접 의존하지 않는다.
