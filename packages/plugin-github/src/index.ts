@@ -265,6 +265,7 @@ export class GithubRestClient {
           Accept: GITHUB_ACCEPT_HEADER,
           Authorization: `Bearer ${token}`,
           "X-GitHub-Api-Version": GITHUB_API_VERSION,
+          "User-Agent": "Queuest GitHub Plugin/0.1.0",
         },
       });
     } catch {

@@ -62,6 +62,7 @@ test("sends fixed GitHub headers and namespaced bearer credentials", async () =>
     Accept: GITHUB_ACCEPT_HEADER,
     Authorization: "Bearer top-secret-token",
     "X-GitHub-Api-Version": GITHUB_API_VERSION,
+    "User-Agent": "Queuest GitHub Plugin/0.1.0",
   });
 });
 
