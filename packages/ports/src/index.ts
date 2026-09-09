@@ -30,8 +30,10 @@ export interface LoadoutRepository {
 
 export interface TaskRepository extends TaskCommentRepository {
   initialize(): Promise<void>;
+  listWorkspaces(): Promise<Workspace[]>;
   listProjectGraphs(): Promise<ProjectGraph[]>;
   saveWorkspace(workspace: Workspace): Promise<void>;
+  deleteWorkspace(workspaceId: EntityId): Promise<void>;
   saveProject(project: Project): Promise<void>;
   deleteProject(projectId: EntityId): Promise<void>;
   saveMilestone(milestone: Milestone): Promise<void>;

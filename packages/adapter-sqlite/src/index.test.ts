@@ -68,6 +68,8 @@ test("SQLite repository survives reload and cascades child records", async () =>
 
   try {
     const workspace: Workspace = { id: "workspace-1", name: "내 원정" };
+    const renamedWorkspace: Workspace = { ...workspace, name: "수정된 원정" };
+    const emptyWorkspace: Workspace = { id: "workspace-2", name: "빈 작업 공간" };
     const project: Project = {
       id: "project-1",
       workspaceId: workspace.id,
@@ -121,6 +123,10 @@ test("SQLite repository survives reload and cascades child records", async () =>
     const repository = new SqliteTaskRepository(database as unknown as Database);
     await repository.initialize();
     await repository.saveWorkspace(workspace);
+    assert.deepEqual(await repository.listWorkspaces(), [workspace]);
+    await repository.saveWorkspace(renamedWorkspace);
+    await repository.saveWorkspace(emptyWorkspace);
+    assert.deepEqual(await repository.listWorkspaces(), [emptyWorkspace, renamedWorkspace]);
     await repository.saveProject(project);
     await repository.saveMilestone(milestone);
     await repository.saveTask(savedTask);
@@ -135,7 +141,7 @@ test("SQLite repository survives reload and cascades child records", async () =>
     await reloadedRepository.initialize();
     assert.deepEqual(await reloadedRepository.listProjectGraphs(), [
       {
-        workspace,
+        workspace: renamedWorkspace,
         project,
         milestones: [milestone],
         tasks: [persistedTask],
@@ -153,7 +159,7 @@ test("SQLite repository survives reload and cascades child records", async () =>
     await reloadedRepository.deleteMilestone(milestone.id);
     assert.deepEqual(await reloadedRepository.listProjectGraphs(), [
       {
-        workspace,
+        workspace: renamedWorkspace,
         project,
         milestones: [],
         tasks: [],
@@ -168,6 +174,39 @@ test("SQLite repository survives reload and cascades child records", async () =>
 
     await reloadedRepository.deleteProject(project.id);
     assert.deepEqual(await reloadedRepository.listProjectGraphs(), []);
+
+    const cascadeProject: Project = {
+      ...project,
+      id: "project-2",
+      workspaceId: renamedWorkspace.id,
+      name: "워크스페이스 삭제 프로젝트",
+    };
+    const cascadeMilestone: Milestone = {
+      ...milestone,
+      id: "milestone-2",
+      projectId: cascadeProject.id,
+    };
+    const cascadeTask: Task = {
+      id: "task-2",
+      milestoneId: cascadeMilestone.id,
+      title: savedTask.title,
+      body: savedTask.body,
+      status: savedTask.status,
+      assignee: savedTask.assignee,
+      skills: savedTask.skills,
+      blocked: savedTask.blocked,
+    };
+    await reloadedRepository.saveProject(cascadeProject);
+    await reloadedRepository.saveMilestone(cascadeMilestone);
+    await reloadedRepository.saveTask(cascadeTask);
+    await reloadedRepository.saveLoadout({ ...loadout, projectId: cascadeProject.id });
+    assert.equal((await reloadedRepository.listProjectGraphs()).length, 1);
+
+    await reloadedRepository.deleteWorkspace(renamedWorkspace.id);
+    assert.deepEqual(await reloadedRepository.listProjectGraphs(), []);
+    assert.deepEqual(await reloadedRepository.listWorkspaces(), [emptyWorkspace]);
+    await reloadedRepository.deleteWorkspace(emptyWorkspace.id);
+    assert.deepEqual(await reloadedRepository.listWorkspaces(), []);
     const loadouts = await reloadedDatabase.select<{ count: number }[]>(
       "SELECT COUNT(*) AS count FROM loadouts",
     );

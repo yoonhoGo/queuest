@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, RefObject } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   activeTaskCount,
   advanceTaskStatus,
   canTransitionTaskStatus,
   calculateExperience,
   calculateLevel,
+  calculateLevelProgress,
   calculateMilestoneProgress,
   calculateProjectProgress,
   calculateProjectStatus,
   calculateSkillSummaries,
   canAssignToAi,
+  experienceToNextLevel,
   isMilestoneComplete,
   isMilestoneUnlocked,
   retreatTaskStatus,
@@ -26,6 +29,7 @@ import type {
   ProjectGraph,
   Task,
   TaskStatus,
+  Workspace,
 } from "@queuest/domain";
 import {
   deleteInboxTodo,
@@ -34,17 +38,24 @@ import {
 } from "./data/inbox";
 import {
   createProject,
+  deleteWorkspace,
+  deleteLoadout,
   deleteMilestone,
   deleteProject,
   deleteTask,
   graphForProject,
   loadProjectGraphs,
+  loadWorkspaces,
+  saveCharacter,
+  saveLoadout,
   saveTask,
   saveMilestone,
   saveProject,
+  saveWorkspace,
   validateRepoPath,
   type NewProjectInput,
 } from "./data/project";
+import { discoverTools, type ToolDiscovery, type ToolInfo } from "./data/tools";
 import "./App.css";
 
 const STATUS_COLUMNS: Array<{ status: TaskStatus; label: string; hint: string }> = [
@@ -78,8 +89,15 @@ const JOB_LABEL: Record<Character["job"], string> = {
   designer: "디자이너",
 };
 
+const SPRITE_ART: Record<Character["job"], readonly string[]> = {
+  developer: ["●", "╱▌╲", "╱ ╲"],
+  planner: ["◆", "╱▌╲", "╱ ╲"],
+  designer: ["✦", "╱▌╲", "╱ ╲"],
+};
+
 type AppView = "inbox" | "project-picker" | "project";
 type ProjectLoadState = "idle" | "loading" | "ready" | "error";
+type WorkspaceMutation = "create" | "update" | "delete" | null;
 
 function App() {
   const [view, setView] = useState<AppView>("inbox");
@@ -91,9 +109,12 @@ function App() {
   const [reloadToken, setReloadToken] = useState(0);
   const [deletedTodo, setDeletedTodo] = useState<InboxTodo | null>(null);
   const [projectGraphs, setProjectGraphs] = useState<ProjectGraph[] | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
   const [projectLoadState, setProjectLoadState] = useState<ProjectLoadState>("idle");
   const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
+  const [workspaceMutation, setWorkspaceMutation] = useState<WorkspaceMutation>(null);
   const [selectedProjectGraph, setSelectedProjectGraph] = useState<ProjectGraph | null>(null);
+  const [pinned, setPinned] = useState(false);
 
   useEffect(() => {
     if (previousViewRef.current === view) {
@@ -199,15 +220,27 @@ function App() {
     }
   }
 
+  async function refreshProjectPickerData(): Promise<{
+    graphs: ProjectGraph[];
+    workspaces: Workspace[];
+  }> {
+    const [graphs, loadedWorkspaces] = await Promise.all([
+      loadProjectGraphs(),
+      loadWorkspaces(),
+    ]);
+    setProjectGraphs(graphs);
+    setWorkspaces(loadedWorkspaces);
+    setProjectLoadState("ready");
+    return { graphs, workspaces: loadedWorkspaces };
+  }
+
   async function loadExistingProjects(): Promise<void> {
     setProjectLoadState("loading");
     setProjectLoadError(null);
     setActionError(null);
 
     try {
-      const graphs = await loadProjectGraphs();
-      setProjectGraphs(graphs);
-      setProjectLoadState("ready");
+      await refreshProjectPickerData();
     } catch (error: unknown) {
       setProjectLoadState("error");
       setProjectLoadError(readableError(error));
@@ -222,6 +255,7 @@ function App() {
   function backToInbox() {
     setSelectedProjectGraph(null);
     setProjectGraphs(null);
+    setWorkspaces(null);
     setProjectLoadState("idle");
     setProjectLoadError(null);
     setView("inbox");
@@ -230,6 +264,7 @@ function App() {
   function backToProjectPicker() {
     setSelectedProjectGraph(null);
     setProjectGraphs(null);
+    setWorkspaces(null);
     setProjectLoadState("idle");
     setProjectLoadError(null);
     setView("project-picker");
@@ -238,6 +273,78 @@ function App() {
   function openProjectPicker() {
     setActionError(null);
     setView("project-picker");
+  }
+
+  async function togglePinned(): Promise<void> {
+    const nextPinned = !pinned;
+
+    try {
+      await invoke("set_window_pinned", { pinned: nextPinned });
+      setPinned(nextPinned);
+    } catch (error: unknown) {
+      setActionError(readableError(error));
+    }
+  }
+
+  async function finishCreateWorkspace(name: string): Promise<Workspace | null> {
+    const workspace: Workspace = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+    };
+    setWorkspaceMutation("create");
+    setProjectLoadError(null);
+    setActionError(null);
+
+    try {
+      await saveWorkspace(workspace);
+      await refreshProjectPickerData();
+      return workspace;
+    } catch (error: unknown) {
+      setProjectLoadError(readableError(error));
+      setActionError(readableError(error));
+      if (!projectGraphs) {
+        setProjectLoadState("error");
+      }
+      return null;
+    } finally {
+      setWorkspaceMutation(null);
+    }
+  }
+
+  async function finishUpdateWorkspace(workspace: Workspace): Promise<Workspace | null> {
+    setWorkspaceMutation("update");
+    setProjectLoadError(null);
+    setActionError(null);
+
+    try {
+      await saveWorkspace(workspace);
+      await refreshProjectPickerData();
+      return workspace;
+    } catch (error: unknown) {
+      setProjectLoadError(readableError(error));
+      setActionError(readableError(error));
+      return null;
+    } finally {
+      setWorkspaceMutation(null);
+    }
+  }
+
+  async function finishDeleteWorkspace(workspaceId: string): Promise<boolean> {
+    setWorkspaceMutation("delete");
+    setProjectLoadError(null);
+    setActionError(null);
+
+    try {
+      await deleteWorkspace(workspaceId);
+      await refreshProjectPickerData();
+      return true;
+    } catch (error: unknown) {
+      setProjectLoadError(readableError(error));
+      setActionError(readableError(error));
+      return false;
+    } finally {
+      setWorkspaceMutation(null);
+    }
   }
 
   async function finishCreateProject(input: NewProjectInput): Promise<boolean> {
@@ -255,9 +362,7 @@ function App() {
         ...input,
         ...(repoPath ? { repoPath } : {}),
       });
-      const graphs = await loadProjectGraphs();
-      setProjectGraphs(graphs);
-      setProjectLoadState("ready");
+      const { graphs } = await refreshProjectPickerData();
       const graph = graphForProject(graphs, created.project.id);
       if (!graph) {
         throw new Error("새 프로젝트를 다시 불러오지 못했습니다.");
@@ -279,6 +384,8 @@ function App() {
       <ProjectBoard
         key={selectedProjectGraph.project.id}
         graph={selectedProjectGraph}
+        pinned={pinned}
+        onTogglePinned={() => void togglePinned()}
         onBackToInbox={backToInbox}
         onProjectDeleted={backToProjectPicker}
       />
@@ -289,6 +396,8 @@ function App() {
     <div className="app-shell">
       <AppHeader
         todoCount={todos?.filter((todo) => !todo.completed).length ?? 0}
+        pinned={pinned}
+        onTogglePinned={() => void togglePinned()}
         onOpenProject={openProjectPicker}
       />
       <main className="main-content">
@@ -297,13 +406,18 @@ function App() {
             headingRef={viewHeadingRef}
             onBack={() => setView("inbox")}
             projectGraphs={projectGraphs}
+            workspaces={workspaces}
             projectLoadState={projectLoadState}
             projectLoadError={projectLoadError}
             actionError={actionError}
+            workspaceMutating={workspaceMutation !== null}
             firstTodoTitle={todos?.find((todo) => !todo.completed)?.title}
             onLoadExisting={loadExistingProjects}
             onSelectProject={selectProject}
             onCreateProject={finishCreateProject}
+            onCreateWorkspace={finishCreateWorkspace}
+            onUpdateWorkspace={finishUpdateWorkspace}
+            onDeleteWorkspace={finishDeleteWorkspace}
             onClearError={() => {
               setProjectLoadError(null);
               setActionError(null);
@@ -357,10 +471,12 @@ function skillText(skills: string[]): string {
 
 interface AppHeaderProps {
   todoCount: number;
+  pinned: boolean;
+  onTogglePinned: () => void;
   onOpenProject: () => void;
 }
 
-function AppHeader({ todoCount, onOpenProject }: AppHeaderProps) {
+function AppHeader({ todoCount, pinned, onTogglePinned, onOpenProject }: AppHeaderProps) {
   return (
     <header className="topbar">
       <div className="brand-lockup">
@@ -376,6 +492,16 @@ function AppHeader({ todoCount, onOpenProject }: AppHeaderProps) {
         <span className="active-counter" title="완료하지 않은 인박스 할 일 수">
           <span aria-hidden="true">◆</span> {todoCount}
         </span>
+        <button
+          className={`icon-button pin-button ${pinned ? "active" : ""}`}
+          type="button"
+          aria-label={pinned ? "팝오버 고정 해제" : "팝오버 고정"}
+          aria-pressed={pinned}
+          title={pinned ? "팝오버 고정 해제" : "포커스를 잃어도 팝오버 유지"}
+          onClick={onTogglePinned}
+        >
+          {pinned ? "📌" : "·"}
+        </button>
         <button className="topbar-project-button" type="button" onClick={onOpenProject}>
           프로젝트
         </button>
@@ -675,13 +801,18 @@ interface ProjectPickerProps {
   headingRef: RefObject<HTMLHeadingElement | null>;
   onBack: () => void;
   projectGraphs: ProjectGraph[] | null;
+  workspaces: Workspace[] | null;
   projectLoadState: ProjectLoadState;
   projectLoadError: string | null;
   actionError: string | null;
+  workspaceMutating: boolean;
   firstTodoTitle?: string;
   onLoadExisting: () => Promise<void>;
   onSelectProject: (graph: ProjectGraph) => void;
   onCreateProject: (input: NewProjectInput) => Promise<boolean>;
+  onCreateWorkspace: (name: string) => Promise<Workspace | null>;
+  onUpdateWorkspace: (workspace: Workspace) => Promise<Workspace | null>;
+  onDeleteWorkspace: (workspaceId: string) => Promise<boolean>;
   onClearError: () => void;
 }
 
@@ -689,16 +820,24 @@ function ProjectPicker({
   headingRef,
   onBack,
   projectGraphs,
+  workspaces,
   projectLoadState,
   projectLoadError,
   actionError,
+  workspaceMutating,
   firstTodoTitle,
   onLoadExisting,
   onSelectProject,
   onCreateProject,
+  onCreateWorkspace,
+  onUpdateWorkspace,
+  onDeleteWorkspace,
   onClearError,
 }: ProjectPickerProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [workspaceEditor, setWorkspaceEditor] = useState<{ workspace?: Workspace } | null>(null);
+  const [workspaceToDelete, setWorkspaceToDelete] = useState<Workspace | null>(null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const previousProjectLoadStateRef = useRef(projectLoadState);
 
   useEffect(() => {
@@ -712,6 +851,60 @@ function ProjectPicker({
     previousProjectLoadStateRef.current = projectLoadState;
   }, [headingRef, projectLoadState]);
 
+  useEffect(() => {
+    if (!workspaces) {
+      return;
+    }
+
+    if (selectedWorkspaceId && workspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
+      return;
+    }
+
+    setSelectedWorkspaceId(workspaces[0]?.id ?? null);
+  }, [selectedWorkspaceId, workspaces]);
+
+  const selectedWorkspace = workspaces?.find((workspace) => workspace.id === selectedWorkspaceId);
+  const visibleProjectGraphs = projectGraphs?.filter(
+    (graph) => graph.workspace.id === selectedWorkspace?.id,
+  ) ?? [];
+
+  function openProjectCreateForm() {
+    if (selectedWorkspace) {
+      setShowCreateForm(true);
+      return;
+    }
+
+    setWorkspaceEditor({});
+  }
+
+  async function saveWorkspaceName(name: string): Promise<Workspace | null> {
+    if (!workspaceEditor) {
+      return null;
+    }
+
+    const saved = workspaceEditor.workspace
+      ? await onUpdateWorkspace({ ...workspaceEditor.workspace, name })
+      : await onCreateWorkspace(name);
+
+    if (saved) {
+      setSelectedWorkspaceId(saved.id);
+      setWorkspaceEditor(null);
+    }
+
+    return saved;
+  }
+
+  async function removeWorkspace(): Promise<void> {
+    if (!workspaceToDelete) {
+      return;
+    }
+
+    if (await onDeleteWorkspace(workspaceToDelete.id)) {
+      setWorkspaceToDelete(null);
+      setShowCreateForm(false);
+    }
+  }
+
   return (
     <section
       className="project-picker"
@@ -723,10 +916,12 @@ function ProjectPicker({
           <p className="eyebrow">PROJECT GATE</p>
           <h2 id="project-picker-title" ref={headingRef} tabIndex={-1}>어디서 이어갈까요?</h2>
         </div>
-        <span className="workspace-chip">선택 후 로드</span>
+        <span className="workspace-chip">
+          {workspaces ? `${workspaces.length}개 워크스페이스` : "선택 후 로드"}
+        </span>
       </div>
       <p className="project-picker-lede">
-        인박스는 그대로 두고, 명시적으로 프로젝트를 선택하거나 새 원정을 만든 뒤 보드를 엽니다.
+        워크스페이스를 고른 뒤 프로젝트를 열거나, 새 워크스페이스와 원정을 차례로 만들 수 있습니다.
       </p>
 
       {actionError && (
@@ -736,12 +931,23 @@ function ProjectPicker({
         </div>
       )}
 
-      {showCreateForm ? (
+      {workspaceEditor && (
+        <WorkspaceEditor
+          workspace={workspaceEditor.workspace}
+          submitting={workspaceMutating}
+          onCancel={() => setWorkspaceEditor(null)}
+          onSubmit={saveWorkspaceName}
+        />
+      )}
+
+      {showCreateForm && selectedWorkspace ? (
         <ProjectCreateForm
+          key={selectedWorkspace.id}
+          workspace={selectedWorkspace}
           initialTaskTitle={firstTodoTitle}
           submitting={projectLoadState === "loading"}
           onCancel={() => setShowCreateForm(false)}
-          onSubmit={onCreateProject}
+          onSubmit={(input) => onCreateProject({ ...input, workspaceId: selectedWorkspace.id })}
         />
       ) : projectLoadState === "loading" ? (
         <ProjectLoadingState />
@@ -755,71 +961,235 @@ function ProjectPicker({
             <button className="primary-button" type="button" onClick={() => void onLoadExisting()}>
               다시 불러오기
             </button>
-            <button className="secondary-button" type="button" onClick={() => setShowCreateForm(true)}>
-              새 프로젝트 만들기
+            <button className="secondary-button" type="button" onClick={() => setWorkspaceEditor({})}>
+              새 워크스페이스 만들기
             </button>
           </div>
         </section>
-      ) : projectLoadState === "ready" && projectGraphs && projectGraphs.length > 0 ? (
-        <section className="project-list-panel" aria-labelledby="saved-projects-title">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">SAVED PROJECTS</p>
-              <h2 id="saved-projects-title">프로젝트 선택</h2>
-            </div>
-            <span className="section-note">{projectGraphs.length}개</span>
-          </div>
-          <div className="project-list">
-            {projectGraphs.map((graph) => (
+      ) : projectLoadState === "ready" ? (
+        <>
+          <section className="workspace-manager" aria-labelledby="workspace-manager-title">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">WORKSPACES</p>
+                <h2 id="workspace-manager-title">워크스페이스</h2>
+              </div>
               <button
-                className="project-list-card"
-                key={graph.project.id}
+                className="small-button accent"
                 type="button"
-                onClick={() => onSelectProject(graph)}
+                onClick={() => setWorkspaceEditor({})}
+                disabled={workspaceMutating}
               >
-                <span className="project-choice-icon" aria-hidden="true">✦</span>
-                <span className="project-list-copy">
-                  <span className="eyebrow">{graph.workspace.name}</span>
-                  <strong>{graph.project.name}</strong>
-                  <span>{graph.milestones.length}개 스테이지 · {graph.tasks.length}개 퀘스트</span>
-                </span>
-                <span className="project-list-arrow" aria-hidden="true">→</span>
+                + 워크스페이스
               </button>
-            ))}
-          </div>
-          <button className="secondary-button project-create-link" type="button" onClick={() => setShowCreateForm(true)}>
-            + 새 프로젝트 만들기
-          </button>
-        </section>
+            </div>
+            {workspaces && workspaces.length > 0 ? (
+              <div className="workspace-list" role="list" aria-label="워크스페이스 목록">
+                {workspaces.map((workspace) => {
+                  const projectCount = projectGraphs?.filter(
+                    (graph) => graph.workspace.id === workspace.id,
+                  ).length ?? 0;
+                  const selected = workspace.id === selectedWorkspace?.id;
+
+                  return (
+                    <div className={`workspace-row ${selected ? "selected" : ""}`} key={workspace.id} role="listitem">
+                      <button
+                        className="workspace-select"
+                        type="button"
+                        aria-pressed={selected}
+                        disabled={workspaceMutating}
+                        onClick={() => {
+                          setSelectedWorkspaceId(workspace.id);
+                          setShowCreateForm(false);
+                        }}
+                      >
+                        <span className="workspace-select-icon" aria-hidden="true">⌂</span>
+                        <span className="workspace-select-copy">
+                          <strong>{workspace.name}</strong>
+                          <small>{projectCount}개 프로젝트</small>
+                        </span>
+                      </button>
+                      <div className="workspace-row-actions">
+                        <button
+                          className="row-action"
+                          type="button"
+                          disabled={workspaceMutating}
+                          onClick={() => setWorkspaceEditor({ workspace })}
+                        >
+                          편집
+                        </button>
+                        <button
+                          className="row-action danger"
+                          type="button"
+                          disabled={workspaceMutating}
+                          onClick={() => setWorkspaceToDelete(workspace)}
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="workspace-empty">아직 워크스페이스가 없습니다. 첫 작업 공간을 만들어 보세요.</p>
+            )}
+          </section>
+
+          {selectedWorkspace && visibleProjectGraphs.length > 0 ? (
+            <section className="project-list-panel" aria-labelledby="saved-projects-title">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">SAVED PROJECTS · {selectedWorkspace.name}</p>
+                  <h2 id="saved-projects-title">프로젝트 선택</h2>
+                </div>
+                <span className="section-note">{visibleProjectGraphs.length}개</span>
+              </div>
+              <div className="project-list">
+                {visibleProjectGraphs.map((graph) => (
+                  <button
+                    className="project-list-card"
+                    key={graph.project.id}
+                    type="button"
+                    onClick={() => onSelectProject(graph)}
+                  >
+                    <span className="project-choice-icon" aria-hidden="true">✦</span>
+                    <span className="project-list-copy">
+                      <span className="eyebrow">{graph.workspace.name}</span>
+                      <strong>{graph.project.name}</strong>
+                      <span>{graph.milestones.length}개 스테이지 · {graph.tasks.length}개 퀘스트</span>
+                    </span>
+                    <span className="project-list-arrow" aria-hidden="true">→</span>
+                  </button>
+                ))}
+              </div>
+              <button className="secondary-button project-create-link" type="button" onClick={openProjectCreateForm}>
+                + 새 프로젝트 만들기
+              </button>
+            </section>
+          ) : selectedWorkspace ? (
+            <section className="state-panel no-project-state" aria-labelledby="no-project-title">
+              <span className="state-mark" aria-hidden="true">✦</span>
+              <p className="eyebrow">WORKSPACE READY</p>
+              <h2 id="no-project-title">{selectedWorkspace.name}에 프로젝트가 없습니다</h2>
+              <p>이 워크스페이스에 첫 원정을 만들면 보드가 열립니다.</p>
+              <div className="state-actions">
+                <button className="primary-button" type="button" onClick={openProjectCreateForm}>
+                  새 프로젝트 만들기
+                </button>
+                <button className="secondary-button" type="button" onClick={() => setWorkspaceEditor({})}>
+                  워크스페이스 추가
+                </button>
+              </div>
+            </section>
+          ) : (
+            <section className="state-panel no-project-state" aria-labelledby="no-workspace-title">
+              <span className="state-mark" aria-hidden="true">⌂</span>
+              <p className="eyebrow">NO WORKSPACE YET</p>
+              <h2 id="no-workspace-title">워크스페이스를 먼저 만들어 주세요</h2>
+              <p>프로젝트와 스테이지를 담을 첫 작업 공간이 필요합니다.</p>
+              <button className="primary-button" type="button" onClick={() => setWorkspaceEditor({})}>
+                새 워크스페이스 만들기
+              </button>
+            </section>
+          )}
+        </>
       ) : (
         <section className="state-panel no-project-state" aria-labelledby="no-project-title">
           <span className="state-mark" aria-hidden="true">⌂</span>
-          <p className="eyebrow">NO PROJECT SELECTED</p>
-          <h2 id="no-project-title">
-            {projectLoadState === "ready" ? "저장된 프로젝트가 없습니다" : "아직 프로젝트를 고르지 않았습니다"}
-          </h2>
-          <p>
-            {projectLoadState === "ready"
-              ? "새 프로젝트를 만들면 첫 스테이지와 함께 보드가 열립니다."
-              : "기존 프로젝트를 불러오거나 새 원정을 만들어 보드로 이동하세요."}
-          </p>
+          <p className="eyebrow">NO WORKSPACE SELECTED</p>
+          <h2 id="no-project-title">아직 워크스페이스를 고르지 않았습니다</h2>
+          <p>기존 워크스페이스를 불러오거나 새 작업 공간을 만들어 보드로 이동하세요.</p>
           <div className="state-actions">
             <button className="primary-button" type="button" onClick={() => void onLoadExisting()}>
-              기존 프로젝트 불러오기
+              기존 워크스페이스 불러오기
             </button>
-            <button className="secondary-button" type="button" onClick={() => setShowCreateForm(true)}>
-              새 프로젝트 만들기
+            <button className="secondary-button" type="button" onClick={() => setWorkspaceEditor({})}>
+              새 워크스페이스 만들기
             </button>
           </div>
         </section>
       )}
 
       <button className="back-link" type="button" onClick={onBack}>← 인박스로 돌아가기</button>
+
+      {workspaceToDelete && (
+        <ConfirmDialog
+          title="워크스페이스를 삭제할까요?"
+          message={`“${workspaceToDelete.name}”의 프로젝트 ${projectGraphs?.filter((graph) => graph.workspace.id === workspaceToDelete.id).length ?? 0}개와 하위 데이터가 함께 삭제됩니다.`}
+          confirmLabel="워크스페이스 삭제"
+          busy={workspaceMutating}
+          onCancel={() => setWorkspaceToDelete(null)}
+          onConfirm={removeWorkspace}
+        />
+      )}
     </section>
   );
 }
 
+interface WorkspaceEditorProps {
+  workspace?: Workspace;
+  submitting: boolean;
+  onCancel: () => void;
+  onSubmit: (name: string) => Promise<Workspace | null>;
+}
+
+function WorkspaceEditor({ workspace, submitting, onCancel, onSubmit }: WorkspaceEditorProps) {
+  const [name, setName] = useState(workspace?.name ?? "");
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setValidationError("워크스페이스 이름을 입력하세요.");
+      return;
+    }
+
+    setValidationError(null);
+    await onSubmit(trimmedName);
+  }
+
+  return (
+    <form className="editor-panel workspace-editor" onSubmit={handleSubmit} aria-labelledby="workspace-editor-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">WORKSPACE EDITOR</p>
+          <h2 id="workspace-editor-title">{workspace ? "워크스페이스 편집" : "새 워크스페이스"}</h2>
+        </div>
+        <span className="section-note">SQLite에 저장</span>
+      </div>
+      <label>
+        워크스페이스 이름
+        <input
+          type="text"
+          value={name}
+          autoFocus
+          disabled={submitting}
+          placeholder="예: 개인 프로젝트"
+          onChange={(event) => {
+            setName(event.target.value);
+            if (validationError) {
+              setValidationError(null);
+            }
+          }}
+        />
+      </label>
+      {validationError && <p className="validation-note" role="alert">{validationError}</p>}
+      <div className="form-actions">
+        <button className="primary-button" type="submit" disabled={submitting}>
+          {submitting ? "저장 중…" : workspace ? "변경 저장" : "워크스페이스 만들기"}
+        </button>
+        <button className="secondary-button" type="button" onClick={onCancel} disabled={submitting}>
+          취소
+        </button>
+      </div>
+    </form>
+  );
+}
+
 interface ProjectCreateFormProps {
+  workspace: Workspace;
   initialTaskTitle?: string;
   submitting: boolean;
   onCancel: () => void;
@@ -827,6 +1197,7 @@ interface ProjectCreateFormProps {
 }
 
 function ProjectCreateForm({
+  workspace,
   initialTaskTitle,
   submitting,
   onCancel,
@@ -862,7 +1233,7 @@ function ProjectCreateForm({
           <p className="eyebrow">NEW EXPEDITION</p>
           <h2>새 프로젝트 만들기</h2>
         </div>
-        <span className="section-note">SQLite에 저장</span>
+        <span className="section-note">{workspace.name} · SQLite에 저장</span>
       </div>
       <label htmlFor="project-name">프로젝트 이름</label>
       <input
@@ -1152,26 +1523,37 @@ interface ProjectSettingsDraft {
   name: string;
   repoPath: string;
   skills: string[];
+  loadout: Pick<Loadout, "agentTool" | "sourceTool">;
 }
 
 interface ProjectSettingsPanelProps {
   project: Project;
+  loadout: Loadout;
+  tools: ToolDiscovery | null;
+  toolLoadError: string | null;
   submitting: boolean;
   onClose: () => void;
   onSubmit: (draft: ProjectSettingsDraft) => Promise<boolean>;
+  onRefreshTools: () => Promise<void>;
   onDelete: () => void;
 }
 
 function ProjectSettingsPanel({
   project,
+  loadout,
+  tools,
+  toolLoadError,
   submitting,
   onClose,
   onSubmit,
+  onRefreshTools,
   onDelete,
 }: ProjectSettingsPanelProps) {
   const [name, setName] = useState(project.name);
   const [repoPath, setRepoPath] = useState(project.repoPath ?? "");
   const [skills, setSkills] = useState(skillText(project.skills));
+  const [agentTool, setAgentTool] = useState<Loadout["agentTool"]>(loadout.agentTool);
+  const [sourceTool, setSourceTool] = useState<Loadout["sourceTool"]>(loadout.sourceTool);
   const [validationError, setValidationError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1187,6 +1569,7 @@ function ProjectSettingsPanel({
       name: trimmedName,
       repoPath: repoPath.trim(),
       skills: parseSkillText(skills),
+      loadout: { agentTool, sourceTool },
     });
     if (!saved) {
       setValidationError("프로젝트 설정을 저장하지 못했습니다.");
@@ -1240,6 +1623,49 @@ function ProjectSettingsPanel({
         />
       </label>
 
+      <div className="settings-subsection">
+        <div className="panel-heading">
+          <h3>프로젝트 장비</h3>
+          <button className="row-action" type="button" onClick={() => void onRefreshTools()} disabled={submitting}>
+            PATH 다시 스캔
+          </button>
+        </div>
+        <div className="editor-grid">
+          <label>
+            에이전트
+            <select
+              value={agentTool ?? ""}
+              disabled={submitting}
+              onChange={(event) => setAgentTool(event.target.value === "claude" ? "claude" : undefined)}
+            >
+              <option value="">장비 없음</option>
+              <option value="claude" disabled={tools?.claude.installed === false}>
+                claude · {toolStatusLabel(tools?.claude)}
+              </option>
+            </select>
+          </label>
+          <label>
+            소스
+            <select
+              value={sourceTool ?? ""}
+              disabled={submitting}
+              onChange={(event) => setSourceTool(event.target.value === "gh" ? "gh" : undefined)}
+            >
+              <option value="">장비 없음</option>
+              <option
+                value="gh"
+                disabled={tools?.gh.installed === false || tools?.gh.authenticated === false}
+              >
+                gh · {toolStatusLabel(tools?.gh)}
+              </option>
+            </select>
+          </label>
+        </div>
+        <p className="field-hint">
+          {toolLoadError ?? "설치되지 않았거나 인증되지 않은 도구는 장착할 수 없습니다."}
+        </p>
+      </div>
+
       {validationError && <p className="validation-note" role="alert">{validationError}</p>}
       <div className="form-actions settings-actions">
         <button className="primary-button" type="submit" disabled={submitting}>
@@ -1250,6 +1676,102 @@ function ProjectSettingsPanel({
         </button>
         <button className="danger-button" type="button" onClick={onDelete} disabled={submitting}>
           프로젝트 삭제
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function toolStatusLabel(tool: ToolInfo | undefined): string {
+  if (!tool) {
+    return "확인 중";
+  }
+
+  if (!tool.installed) {
+    return "미설치";
+  }
+
+  if (tool.authenticated === false) {
+    return "인증 필요";
+  }
+
+  return "준비됨";
+}
+
+interface CharacterSettingsPanelProps {
+  character: Character;
+  submitting: boolean;
+  onClose: () => void;
+  onSubmit: (character: Character) => Promise<boolean>;
+}
+
+function CharacterSettingsPanel({
+  character,
+  submitting,
+  onClose,
+  onSubmit,
+}: CharacterSettingsPanelProps) {
+  const [name, setName] = useState(character.name);
+  const [job, setJob] = useState<Character["job"]>(character.job);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setValidationError("캐릭터 이름을 입력하세요.");
+      return;
+    }
+
+    setValidationError(null);
+    await onSubmit({ name: trimmedName, job, spriteId: job });
+  }
+
+  return (
+    <form className="editor-panel character-settings" onSubmit={handleSubmit} aria-labelledby="character-settings-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">CHARACTER SETTINGS</p>
+          <h2 id="character-settings-title">캐릭터 설정</h2>
+        </div>
+        <span className="section-note">이름 · 직업 · 스프라이트</span>
+      </div>
+      <div className="editor-grid">
+        <label>
+          캐릭터 이름
+          <input
+            type="text"
+            value={name}
+            autoFocus
+            disabled={submitting}
+            onChange={(event) => {
+              setName(event.target.value);
+              if (validationError) {
+                setValidationError(null);
+              }
+            }}
+          />
+        </label>
+        <label>
+          직업
+          <select
+            value={job}
+            disabled={submitting}
+            onChange={(event) => setJob(event.target.value as Character["job"])}
+          >
+            <option value="developer">{JOB_LABEL.developer} · 개발 스프라이트</option>
+            <option value="planner">{JOB_LABEL.planner} · 기획 스프라이트</option>
+            <option value="designer">{JOB_LABEL.designer} · 디자인 스프라이트</option>
+          </select>
+        </label>
+      </div>
+      {validationError && <p className="validation-note" role="alert">{validationError}</p>}
+      <div className="form-actions">
+        <button className="primary-button" type="submit" disabled={submitting}>
+          {submitting ? "저장 중…" : "캐릭터 저장"}
+        </button>
+        <button className="secondary-button" type="button" onClick={onClose} disabled={submitting}>
+          닫기
         </button>
       </div>
     </form>
@@ -1306,11 +1828,13 @@ function ConfirmDialog({
 
 interface ProjectBoardProps {
   graph: ProjectGraph;
+  pinned: boolean;
+  onTogglePinned: () => void;
   onBackToInbox: () => void;
   onProjectDeleted: () => void;
 }
 
-function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardProps) {
+function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectDeleted }: ProjectBoardProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [project, setProject] = useState<Project>(graph.project);
   const [milestones, setMilestones] = useState<Milestone[]>(() =>
@@ -1321,19 +1845,24 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
     graph.milestones[0]?.id ?? null,
   );
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [mutation, setMutation] = useState<"task" | "milestone" | "project" | null>(null);
+  const [mutation, setMutation] = useState<"task" | "milestone" | "project" | "character" | null>(null);
   const [taskEditor, setTaskEditor] = useState<{
     task?: Task;
     milestoneId: string;
   } | null>(null);
   const [milestoneEditor, setMilestoneEditor] = useState<{ milestone?: Milestone } | null>(null);
   const [showProjectSettings, setShowProjectSettings] = useState(false);
+  const [showCharacterSettings, setShowCharacterSettings] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [milestoneToDelete, setMilestoneToDelete] = useState<Milestone | null>(null);
   const [confirmProjectDelete, setConfirmProjectDelete] = useState(false);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
-  const character = graph.character ?? DEFAULT_CHARACTER;
-  const loadout = graph.loadout ?? { ...DEFAULT_LOADOUT, projectId: project.id };
+  const [character, setCharacter] = useState<Character>(graph.character ?? DEFAULT_CHARACTER);
+  const [loadout, setLoadout] = useState<Loadout>(
+    graph.loadout ?? { ...DEFAULT_LOADOUT, projectId: project.id },
+  );
+  const [tools, setTools] = useState<ToolDiscovery | null>(null);
+  const [toolLoadError, setToolLoadError] = useState<string | null>(null);
 
   const orderedMilestones = useMemo(
     () => [...milestones].sort((left, right) => left.order - right.order),
@@ -1349,13 +1878,15 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
   const projectStatus = calculateProjectStatus(orderedMilestones, tasks);
   const experience = calculateExperience(orderedMilestones, tasks);
   const level = calculateLevel(experience);
+  const experienceForNextLevel = experienceToNextLevel(experience);
+  const levelProgress = calculateLevelProgress(experience);
   const skillSummaries = calculateSkillSummaries(
     project,
     orderedMilestones,
     tasks,
     character,
   );
-  const aiReady = canAssignToAi(project, loadout);
+  const aiReady = canAssignToAi(project, loadout) && tools?.claude.installed === true;
   const selectedTasks = useMemo(
     () => (selectedMilestone ? tasks.filter((task) => task.milestoneId === selectedMilestone.id) : []),
     [selectedMilestone?.id, tasks],
@@ -1365,6 +1896,37 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
   useEffect(() => {
     headingRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    setToolLoadError(null);
+
+    discoverTools()
+      .then((discovered) => {
+        if (mounted) {
+          setTools(discovered);
+        }
+      })
+      .catch((error: unknown) => {
+        if (mounted) {
+          setToolLoadError(readableError(error));
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  async function refreshTools(): Promise<void> {
+    setToolLoadError(null);
+
+    try {
+      setTools(await discoverTools());
+    } catch (error: unknown) {
+      setToolLoadError(readableError(error));
+    }
+  }
 
   async function persistTask(updatedTask: Task): Promise<boolean> {
     setSaveError(null);
@@ -1589,9 +2151,36 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
         skills: draft.skills,
         ...(repoPath ? { repoPath } : {}),
       };
+      const updatedLoadout: Loadout = {
+        projectId: project.id,
+        ...draft.loadout,
+      };
       await saveProject(updatedProject);
+      if (updatedLoadout.agentTool || updatedLoadout.sourceTool) {
+        await saveLoadout(updatedLoadout);
+      } else {
+        await deleteLoadout(project.id);
+      }
       setProject(updatedProject);
+      setLoadout(updatedLoadout);
       setShowProjectSettings(false);
+      return true;
+    } catch (error: unknown) {
+      setSaveError(readableError(error));
+      return false;
+    } finally {
+      setMutation(null);
+    }
+  }
+
+  async function saveCharacterSettings(updatedCharacter: Character): Promise<boolean> {
+    setSaveError(null);
+    setMutation("character");
+
+    try {
+      await saveCharacter(updatedCharacter);
+      setCharacter(updatedCharacter);
+      setShowCharacterSettings(false);
       return true;
     } catch (error: unknown) {
       setSaveError(readableError(error));
@@ -1645,6 +2234,16 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
           <span className="active-counter" title="현재 진행 중인 태스크 수">
             <span aria-hidden="true">◆</span> {activeCount}
           </span>
+          <button
+            className={`icon-button pin-button ${pinned ? "active" : ""}`}
+            type="button"
+            aria-label={pinned ? "팝오버 고정 해제" : "팝오버 고정"}
+            aria-pressed={pinned}
+            title={pinned ? "팝오버 고정 해제" : "포커스를 잃어도 팝오버 유지"}
+            onClick={onTogglePinned}
+          >
+            {pinned ? "📌" : "·"}
+          </button>
           <button className="topbar-project-button" type="button" onClick={onBackToInbox}>
             인박스
           </button>
@@ -1706,9 +2305,13 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
         {showProjectSettings && (
           <ProjectSettingsPanel
             project={project}
+            loadout={loadout}
+            tools={tools}
+            toolLoadError={toolLoadError}
             submitting={mutation === "project"}
             onClose={() => setShowProjectSettings(false)}
             onSubmit={saveProjectSettings}
+            onRefreshTools={refreshTools}
             onDelete={() => setConfirmProjectDelete(true)}
           />
         )}
@@ -1906,15 +2509,30 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
               <p className="eyebrow">CHARACTER SHEET</p>
               <h2 id="character-title">나의 캐릭터</h2>
             </div>
-            <span className="sheet-rule">계산되는 뷰</span>
+            <div className="quest-heading-actions">
+              <span className="sheet-rule">계산되는 뷰</span>
+              <button
+                className="small-button"
+                type="button"
+                onClick={() => setShowCharacterSettings(true)}
+                disabled={mutation !== null}
+              >
+                캐릭터 편집
+              </button>
+            </div>
           </div>
 
+          {showCharacterSettings && (
+            <CharacterSettingsPanel
+              character={character}
+              submitting={mutation === "character"}
+              onClose={() => setShowCharacterSettings(false)}
+              onSubmit={saveCharacterSettings}
+            />
+          )}
+
           <div className="character-summary">
-            <div className="sprite" aria-label={`${character.job} ${character.spriteId} 도트 캐릭터`} role="img">
-              <span aria-hidden="true">●</span>
-              <span aria-hidden="true">╱▌╲</span>
-              <span aria-hidden="true">╱ ╲</span>
-            </div>
+            <CharacterSprite character={character} />
             <div className="character-copy">
               <div className="character-name-row">
                 <h3>{character.name}</h3>
@@ -1923,7 +2541,7 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
               <p>Lv. {level} 원정대원</p>
               <div className="xp-row">
                 <span>XP {experience}</span>
-                <span>다음 레벨까지 {Math.max(0, 100 - (experience % 100))}</span>
+                <span>다음 레벨까지 {experienceForNextLevel}</span>
               </div>
               <div
                 className="xp-track"
@@ -1931,9 +2549,9 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
                 aria-label={`경험치 ${experience}`}
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-valuenow={experience % 100}
+                aria-valuenow={levelProgress}
               >
-                <span aria-hidden="true" style={{ width: `${Math.min(100, experience % 100 || (experience > 0 ? 100 : 0))}%` }} />
+                <span aria-hidden="true" style={{ width: `${levelProgress}%` }} />
               </div>
             </div>
           </div>
@@ -1975,24 +2593,44 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
                 label="에이전트"
                 value={loadout.agentTool ?? "비어 있음"}
                 ready={aiReady}
-                detail={project.repoPath ? "실행 준비됨" : "repoPath 연결 대기"}
+                detail={
+                  !project.repoPath
+                    ? "repoPath 연결 대기"
+                    : !tools
+                      ? "도구 확인 중"
+                      : !tools.claude.installed
+                        ? "claude 미설치"
+                        : "실행 준비됨"
+                }
               />
               <EquipmentSlot
                 label="소스"
                 value={loadout.sourceTool ?? "비어 있음"}
-                ready={Boolean(loadout.sourceTool)}
-                detail="가져오기 어댑터"
+                ready={
+                  loadout.sourceTool === "gh" &&
+                  tools?.gh.installed === true &&
+                  tools.gh.authenticated !== false
+                }
+                detail={
+                  !loadout.sourceTool
+                    ? "장비를 선택하세요"
+                    : !tools
+                      ? "도구 확인 중"
+                      : !tools.gh.installed
+                        ? "gh 미설치"
+                        : tools.gh.authenticated === false
+                          ? "gh 인증 필요"
+                          : "가져오기 준비됨"
+                }
               />
             </div>
           </div>
 
-          <div className="inventory-line">
-            <span className="inventory-label">발견한 도구</span>
-            <span className="tool-tag equipped">claude</span>
-            <span className="tool-tag equipped">gh</span>
-            <span className="tool-tag muted">jj</span>
-            <span className="inventory-note">PATH 스캔은 Tauri 셸 연결 후 활성화</span>
-          </div>
+          <ToolInventory
+            tools={tools}
+            loadError={toolLoadError}
+            onRefresh={refreshTools}
+          />
         </section>
 
         <p className="prototype-note">
@@ -2108,6 +2746,57 @@ interface EquipmentSlotProps {
   value: string;
   ready: boolean;
   detail: string;
+}
+
+interface CharacterSpriteProps {
+  character: Character;
+}
+
+function CharacterSprite({ character }: CharacterSpriteProps) {
+  return (
+    <div
+      className={`sprite sprite-${character.spriteId}`}
+      aria-label={`${JOB_LABEL[character.job]} ${character.spriteId} 도트 캐릭터`}
+      role="img"
+    >
+      {SPRITE_ART[character.job].map((line) => (
+        <span aria-hidden="true" key={line}>{line}</span>
+      ))}
+    </div>
+  );
+}
+
+interface ToolInventoryProps {
+  tools: ToolDiscovery | null;
+  loadError: string | null;
+  onRefresh: () => Promise<void>;
+}
+
+function ToolInventory({ tools, loadError, onRefresh }: ToolInventoryProps) {
+  const entries: ToolInfo[] = tools ? [tools.claude, tools.gh, tools.jj] : [];
+
+  return (
+    <div className="inventory-line" aria-label="발견한 도구">
+      <span className="inventory-label">발견한 도구</span>
+      {entries.length > 0 ? entries.map((tool) => (
+        <span
+          className={`tool-tag ${!tool.installed ? "muted" : tool.authenticated === false ? "warning" : "equipped"}`}
+          key={tool.id}
+          title={tool.path ?? `${tool.id} 경로를 찾지 못했습니다.`}
+        >
+          {tool.id} · {toolStatusLabel(tool)}
+        </span>
+      )) : (
+        <span className="tool-tag muted">확인 중…</span>
+      )}
+      <button className="row-action" type="button" onClick={() => void onRefresh()}>
+        다시 스캔
+      </button>
+      <span className="inventory-note">
+        {loadError ?? (tools ? "PATH와 gh 인증 상태를 확인했습니다." : "Tauri 셸에서 PATH를 탐색하는 중입니다.")}
+      </span>
+    </div>
+  );
 }
 
 function EquipmentSlot({ label, value, ready, detail }: EquipmentSlotProps) {

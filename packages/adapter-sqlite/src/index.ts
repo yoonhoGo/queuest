@@ -209,6 +209,13 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
     }
   }
 
+  public async listWorkspaces(): Promise<Workspace[]> {
+    const rows = await this.database.select<WorkspaceRow[]>(
+      "SELECT id, name FROM workspaces ORDER BY name, id",
+    );
+    return rows.map((row) => ({ id: row.id, name: row.name }));
+  }
+
   public async listProjectGraphs(): Promise<ProjectGraph[]> {
     const [
       workspaceRows,
@@ -367,6 +374,10 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
        ON CONFLICT(id) DO UPDATE SET name = excluded.name`,
       [workspace.id, workspace.name],
     );
+  }
+
+  public async deleteWorkspace(workspaceId: EntityId): Promise<void> {
+    await this.database.execute("DELETE FROM workspaces WHERE id = $1", [workspaceId]);
   }
 
   public async saveProject(project: Project): Promise<void> {

@@ -179,6 +179,31 @@ export function calculateLevel(experience: number): number {
   return Math.floor(Math.sqrt(experience / 100));
 }
 
+export function experienceForLevel(level: number): number {
+  return level * level * 100;
+}
+
+export function experienceToNextLevel(experience: number): number {
+  const level = calculateLevel(experience);
+  return Math.max(0, experienceForLevel(level + 1) - experience);
+}
+
+export function calculateLevelProgress(experience: number): number {
+  const level = calculateLevel(experience);
+  const currentLevelExperience = experienceForLevel(level);
+  const nextLevelExperience = experienceForLevel(level + 1);
+
+  return Math.min(
+    100,
+    Math.max(
+      0,
+      ((experience - currentLevelExperience) /
+        (nextLevelExperience - currentLevelExperience)) *
+        100,
+    ),
+  );
+}
+
 export function effectiveTaskSkills(task: Task, project: Project): string[] {
   return task.skills.length > 0 ? task.skills : project.skills;
 }

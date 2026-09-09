@@ -16,9 +16,18 @@ export async function loadProjectGraphs(): Promise<ProjectGraph[]> {
   return (await getRepository()).listProjectGraphs();
 }
 
+export async function loadWorkspaces(): Promise<Workspace[]> {
+  return (await getRepository()).listWorkspaces();
+}
+
 export async function saveWorkspace(workspace: Workspace): Promise<void> {
   const repository = await getRepository();
   await repository.saveWorkspace(workspace);
+}
+
+export async function deleteWorkspace(workspaceId: EntityId): Promise<void> {
+  const repository = await getRepository();
+  await repository.deleteWorkspace(workspaceId);
 }
 
 export async function saveProject(project: Project): Promise<void> {
@@ -93,6 +102,7 @@ export async function deleteLoadout(projectId: EntityId): Promise<void> {
 
 export interface NewProjectInput {
   name: string;
+  workspaceId?: EntityId;
   firstTaskTitle?: string;
   repoPath?: string;
   skills?: string[];
@@ -106,10 +116,18 @@ export interface CreatedProject {
 }
 
 export async function createProject(input: NewProjectInput): Promise<CreatedProject> {
-  const workspace: Workspace = {
-    id: crypto.randomUUID(),
-    name: "내 원정",
-  };
+  const repository = await getRepository();
+  const workspace = input.workspaceId
+    ? (await repository.listWorkspaces()).find((item) => item.id === input.workspaceId)
+    : {
+        id: crypto.randomUUID(),
+        name: "내 원정",
+      };
+
+  if (!workspace) {
+    throw new Error("프로젝트를 담을 워크스페이스를 찾지 못했습니다.");
+  }
+
   const project: Project = {
     id: crypto.randomUUID(),
     workspaceId: workspace.id,
@@ -124,7 +142,9 @@ export async function createProject(input: NewProjectInput): Promise<CreatedProj
     order: 1,
   };
 
-  await saveWorkspace(workspace);
+  if (!input.workspaceId) {
+    await repository.saveWorkspace(workspace);
+  }
   await saveProject(project);
   await saveMilestone(milestone);
 

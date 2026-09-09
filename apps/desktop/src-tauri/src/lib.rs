@@ -11,12 +11,17 @@ use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, State,
+    Manager, PhysicalPosition, State, WebviewWindow, WindowEvent,
 };
 
 #[derive(Default)]
 struct AgentState {
     active_child: Mutex<Option<Arc<Mutex<Child>>>>,
+}
+
+#[derive(Default)]
+struct WindowState {
+    pinned: Mutex<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -41,11 +46,53 @@ struct RepoPathInfo {
     is_directory: bool,
 }
 
-fn toggle_main_window(app: &tauri::AppHandle) {
+#[derive(Debug, Serialize)]
+struct ToolInfo {
+    id: String,
+    installed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    authenticated: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+struct ToolDiscovery {
+    claude: ToolInfo,
+    gh: ToolInfo,
+    jj: ToolInfo,
+}
+
+fn position_main_window(window: &WebviewWindow, anchor: PhysicalPosition<f64>) {
+    let size = window
+        .outer_size()
+        .unwrap_or_else(|_| tauri::PhysicalSize::new(420, 640));
+    let (work_area_left, work_area_right) = window
+        .monitor_from_point(anchor.x, anchor.y)
+        .ok()
+        .flatten()
+        .map(|monitor| {
+            let work_area = monitor.work_area();
+            let left = f64::from(work_area.position.x);
+            (left, left + f64::from(work_area.size.width))
+        })
+        .unwrap_or((0.0, f64::from(size.width)));
+    let max_x = (work_area_right - f64::from(size.width)).max(work_area_left);
+    let x = (anchor.x - f64::from(size.width) / 2.0)
+        .clamp(work_area_left, max_x)
+        .round() as i32;
+    let y = (anchor.y + 8.0).round() as i32;
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
+fn toggle_main_window(app: &tauri::AppHandle, anchor: Option<PhysicalPosition<f64>>) {
     if let Some(window) = app.get_webview_window("main") {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
         } else {
+            if let Some(anchor) = anchor {
+                position_main_window(&window, anchor);
+            }
             let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
@@ -73,6 +120,55 @@ fn validate_repo_path(repo_path: String) -> Result<RepoPathInfo, String> {
         path: path.to_string(),
         is_directory: true,
     })
+}
+
+#[tauri::command]
+fn set_window_pinned(state: State<'_, WindowState>, pinned: bool) -> Result<(), String> {
+    let mut current = state
+        .pinned
+        .lock()
+        .map_err(|_| "팝오버 고정 상태를 저장하지 못했습니다.".to_string())?;
+    *current = pinned;
+    Ok(())
+}
+
+fn discover_tool(id: &str, check_authentication: bool) -> ToolInfo {
+    let path = Command::new("which")
+        .arg(id)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            (!path.is_empty()).then_some(path)
+        });
+    let authenticated = if check_authentication && path.is_some() {
+        Some(
+            Command::new(id)
+                .args(["auth", "status"])
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false),
+        )
+    } else {
+        None
+    };
+
+    ToolInfo {
+        id: id.to_string(),
+        installed: path.is_some(),
+        path,
+        authenticated,
+    }
+}
+
+#[tauri::command]
+fn discover_tools() -> ToolDiscovery {
+    ToolDiscovery {
+        claude: discover_tool("claude", false),
+        gh: discover_tool("gh", true),
+        jj: discover_tool("jj", false),
+    }
 }
 
 fn wait_for_agent(child: Arc<Mutex<Child>>) -> Result<AgentRunResult, String> {
@@ -235,28 +331,58 @@ fn github_issue_list(repo_path: String) -> Result<Vec<GithubIssue>, String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(AgentState::default())
+        .manage(WindowState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                app.set_dock_visibility(false);
+            }
+
+            if let Some(window) = app.get_webview_window("main") {
+                let app_handle = app.handle().clone();
+                let focus_window = window.clone();
+                window.on_window_event(move |event| {
+                    if let WindowEvent::Focused(false) = event {
+                        let pinned = app_handle
+                            .state::<WindowState>()
+                            .pinned
+                            .lock()
+                            .map(|value| *value)
+                            .unwrap_or(false);
+                        if !pinned {
+                            let _ = focus_window.hide();
+                        }
+                    }
+                });
+                let _ = window.hide();
+            }
+
             let toggle = MenuItemBuilder::with_id("toggle", "Queuest 열기/닫기").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "종료").build(app)?;
             let menu = MenuBuilder::new(app).items(&[&toggle, &quit]).build()?;
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
+                .icon_as_template(true)
+                .title("Q")
+                .tooltip("Queuest")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
-                    "toggle" => toggle_main_window(app),
+                    "toggle" => toggle_main_window(app, None),
                     "quit" => app.exit(0),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| match event {
                     TrayIconEvent::Click {
+                        position,
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
-                    } => toggle_main_window(&tray.app_handle()),
+                    } => toggle_main_window(&tray.app_handle(), Some(position)),
                     _ => {}
                 })
                 .build(app)?;
@@ -267,7 +393,9 @@ pub fn run() {
             run_agent,
             cancel_agent,
             github_issue_list,
-            validate_repo_path
+            validate_repo_path,
+            set_window_pinned,
+            discover_tools
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

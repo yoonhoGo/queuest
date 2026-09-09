@@ -4,9 +4,12 @@ import {
   advanceTaskStatus,
   canTransitionTaskStatus,
   calculateExperience,
+  calculateLevel,
+  calculateLevelProgress,
   calculateMilestoneProgress,
   calculateProjectProgress,
   calculateProjectStatus,
+  experienceToNextLevel,
   isMilestoneComplete,
   isMilestoneUnlocked,
   retreatTaskStatus,
@@ -84,4 +87,15 @@ test("progress and experience calculations use the saved task graph", () => {
   assert.equal(calculateProjectProgress(milestones, tasks), 50);
   assert.equal(calculateProjectStatus(milestones, tasks), "active");
   assert.equal(calculateExperience(milestones, tasks), 60);
+});
+
+test("level progress uses the same quadratic thresholds as level calculation", () => {
+  assert.equal(calculateLevel(60), 0);
+  assert.equal(experienceToNextLevel(60), 40);
+  assert.equal(calculateLevelProgress(60), 60);
+
+  assert.equal(calculateLevel(100), 1);
+  assert.equal(experienceToNextLevel(100), 300);
+  assert.equal(calculateLevelProgress(100), 0);
+  assert.equal(calculateLevelProgress(250), 50);
 });
