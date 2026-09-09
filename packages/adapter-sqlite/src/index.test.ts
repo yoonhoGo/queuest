@@ -5,7 +5,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import type Database from "@tauri-apps/plugin-sql";
-import type { Milestone, Project, Task, Workspace } from "@queuest/domain";
+import type {
+  Character,
+  Loadout,
+  Milestone,
+  Project,
+  Task,
+  TaskComment,
+  Workspace,
+} from "@queuest/domain";
 import { SqliteTaskRepository } from "./index.ts";
 
 function sqlLiteral(value: unknown): string {
@@ -73,6 +81,13 @@ test("SQLite repository survives reload and cascades child records", async () =>
       name: "첫 스테이지",
       order: 1,
     };
+    const comment: TaskComment = {
+      id: "comment-1",
+      taskId: "task-1",
+      body: "검토 메모",
+      author: "human",
+      createdAt: "2026-09-09T00:00:00.000Z",
+    };
     const savedTask: Task = {
       id: "task-1",
       milestoneId: milestone.id,
@@ -82,6 +97,24 @@ test("SQLite repository survives reload and cascades child records", async () =>
       assignee: "human",
       skills: ["typescript"],
       blocked: false,
+      comments: [comment],
+    };
+    const character: Character = {
+      name: "원정대장",
+      job: "planner",
+      spriteId: "planner",
+    };
+    const loadout: Loadout = {
+      projectId: project.id,
+      agentTool: "claude",
+    };
+    const updatedComment: TaskComment = {
+      ...comment,
+      body: "수정된 검토 메모",
+    };
+    const persistedTask: Task = {
+      ...savedTask,
+      comments: [updatedComment],
     };
 
     const database = new SqliteCliDatabase(databasePath);
@@ -91,10 +124,9 @@ test("SQLite repository survives reload and cascades child records", async () =>
     await repository.saveProject(project);
     await repository.saveMilestone(milestone);
     await repository.saveTask(savedTask);
-    await database.execute(
-      "INSERT INTO task_comments (id, task_id, body, author, created_at) VALUES ($1, $2, $3, $4, $5)",
-      ["comment-1", savedTask.id, "검토 메모", "human", "2026-09-09T00:00:00.000Z"],
-    );
+    await repository.saveTaskComment(updatedComment);
+    await repository.saveCharacter(character);
+    await repository.saveLoadout(loadout);
 
     const reloadedDatabase = new SqliteCliDatabase(databasePath);
     const reloadedRepository = new SqliteTaskRepository(
@@ -106,12 +138,29 @@ test("SQLite repository survives reload and cascades child records", async () =>
         workspace,
         project,
         milestones: [milestone],
-        tasks: [savedTask],
+        tasks: [persistedTask],
+        character,
+        loadout,
       },
     ]);
+    assert.deepEqual(await reloadedRepository.listTaskComments(savedTask.id), [updatedComment]);
+    assert.deepEqual(await reloadedRepository.getCharacter(), character);
+    assert.deepEqual(await reloadedRepository.getLoadout(project.id), loadout);
+    await reloadedRepository.deleteTaskComment(updatedComment.id);
+    assert.deepEqual(await reloadedRepository.listTaskComments(savedTask.id), []);
+    await reloadedRepository.saveTaskComment(updatedComment);
 
     await reloadedRepository.deleteMilestone(milestone.id);
-    assert.deepEqual((await reloadedRepository.listProjectGraphs())[0]?.tasks, []);
+    assert.deepEqual(await reloadedRepository.listProjectGraphs(), [
+      {
+        workspace,
+        project,
+        milestones: [],
+        tasks: [],
+        character,
+        loadout,
+      },
+    ]);
     const comments = await reloadedDatabase.select<{ count: number }[]>(
       "SELECT COUNT(*) AS count FROM task_comments",
     );
@@ -119,6 +168,14 @@ test("SQLite repository survives reload and cascades child records", async () =>
 
     await reloadedRepository.deleteProject(project.id);
     assert.deepEqual(await reloadedRepository.listProjectGraphs(), []);
+    const loadouts = await reloadedDatabase.select<{ count: number }[]>(
+      "SELECT COUNT(*) AS count FROM loadouts",
+    );
+    assert.equal(loadouts[0]?.count, 0);
+    const characters = await reloadedDatabase.select<{ count: number }[]>(
+      "SELECT COUNT(*) AS count FROM characters",
+    );
+    assert.equal(characters[0]?.count, 1);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

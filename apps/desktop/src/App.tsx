@@ -72,6 +72,12 @@ const DEFAULT_LOADOUT: Loadout = {
   sourceTool: "gh",
 };
 
+const JOB_LABEL: Record<Character["job"], string> = {
+  developer: "개발자",
+  planner: "기획자",
+  designer: "디자이너",
+};
+
 type AppView = "inbox" | "project-picker" | "project";
 type ProjectLoadState = "idle" | "loading" | "ready" | "error";
 
@@ -1326,6 +1332,8 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
   const [milestoneToDelete, setMilestoneToDelete] = useState<Milestone | null>(null);
   const [confirmProjectDelete, setConfirmProjectDelete] = useState(false);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const character = graph.character ?? DEFAULT_CHARACTER;
+  const loadout = graph.loadout ?? { ...DEFAULT_LOADOUT, projectId: project.id };
 
   const orderedMilestones = useMemo(
     () => [...milestones].sort((left, right) => left.order - right.order),
@@ -1345,9 +1353,9 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
     project,
     orderedMilestones,
     tasks,
-    DEFAULT_CHARACTER,
+    character,
   );
-  const aiReady = canAssignToAi(project, { ...DEFAULT_LOADOUT, projectId: project.id });
+  const aiReady = canAssignToAi(project, loadout);
   const selectedTasks = useMemo(
     () => (selectedMilestone ? tasks.filter((task) => task.milestoneId === selectedMilestone.id) : []),
     [selectedMilestone?.id, tasks],
@@ -1902,15 +1910,15 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
           </div>
 
           <div className="character-summary">
-            <div className="sprite" aria-label={`${DEFAULT_CHARACTER.job} 도트 캐릭터`} role="img">
+            <div className="sprite" aria-label={`${character.job} ${character.spriteId} 도트 캐릭터`} role="img">
               <span aria-hidden="true">●</span>
               <span aria-hidden="true">╱▌╲</span>
               <span aria-hidden="true">╱ ╲</span>
             </div>
             <div className="character-copy">
               <div className="character-name-row">
-                <h3>{DEFAULT_CHARACTER.name}</h3>
-                <span className="job-badge">개발자</span>
+                <h3>{character.name}</h3>
+                <span className="job-badge">{JOB_LABEL[character.job]}</span>
               </div>
               <p>Lv. {level} 원정대원</p>
               <div className="xp-row">
@@ -1965,14 +1973,14 @@ function ProjectBoard({ graph, onBackToInbox, onProjectDeleted }: ProjectBoardPr
               </div>
               <EquipmentSlot
                 label="에이전트"
-                value={DEFAULT_LOADOUT.agentTool ?? "비어 있음"}
+                value={loadout.agentTool ?? "비어 있음"}
                 ready={aiReady}
                 detail={project.repoPath ? "실행 준비됨" : "repoPath 연결 대기"}
               />
               <EquipmentSlot
                 label="소스"
-                value={DEFAULT_LOADOUT.sourceTool ?? "비어 있음"}
-                ready={Boolean(DEFAULT_LOADOUT.sourceTool)}
+                value={loadout.sourceTool ?? "비어 있음"}
+                ready={Boolean(loadout.sourceTool)}
                 detail="가져오기 어댑터"
               />
             </div>
@@ -2065,6 +2073,9 @@ function TaskCard({
       <div className="card-meta">
         <span className="card-status">{STATUS_COLUMNS.find((column) => column.status === task.status)?.label}</span>
         <span className="card-assignee">{task.assignee === "ai" ? "AI" : "나"}</span>
+        {task.comments && task.comments.length > 0 && (
+          <span className="card-comments">댓글 {task.comments.length}</span>
+        )}
       </div>
       <h4>{task.title}</h4>
       <p>{task.body}</p>

@@ -1,10 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  Character,
   EntityId,
+  Loadout,
   Milestone,
   Project,
   ProjectGraph,
   Task,
+  TaskComment,
   Workspace,
 } from "@queuest/domain";
 import { getRepository } from "./repository";
@@ -46,6 +49,46 @@ export async function saveTask(task: Task): Promise<void> {
 export async function deleteTask(taskId: EntityId): Promise<void> {
   const repository = await getRepository();
   await repository.deleteTask(taskId);
+}
+
+export async function listTaskComments(taskId: EntityId): Promise<TaskComment[]> {
+  const repository = await getRepository();
+  return repository.listTaskComments(taskId);
+}
+
+export async function saveTaskComment(comment: TaskComment): Promise<void> {
+  const repository = await getRepository();
+  await repository.saveTaskComment(comment);
+}
+
+export async function deleteTaskComment(commentId: EntityId): Promise<void> {
+  const repository = await getRepository();
+  await repository.deleteTaskComment(commentId);
+}
+
+export async function saveCharacter(character: Character): Promise<void> {
+  const repository = await getRepository();
+  await repository.saveCharacter(character);
+}
+
+export async function loadCharacter(): Promise<Character | undefined> {
+  const repository = await getRepository();
+  return repository.getCharacter();
+}
+
+export async function saveLoadout(loadout: Loadout): Promise<void> {
+  const repository = await getRepository();
+  await repository.saveLoadout(loadout);
+}
+
+export async function loadLoadout(projectId: EntityId): Promise<Loadout | undefined> {
+  const repository = await getRepository();
+  return repository.getLoadout(projectId);
+}
+
+export async function deleteLoadout(projectId: EntityId): Promise<void> {
+  const repository = await getRepository();
+  await repository.deleteLoadout(projectId);
 }
 
 export interface NewProjectInput {

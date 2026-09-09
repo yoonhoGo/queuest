@@ -82,6 +82,8 @@ export interface ProjectGraph {
   project: Project;
   milestones: Milestone[];
   tasks: Task[];
+  character?: Character;
+  loadout?: Loadout;
 }
 
 export interface SkillSummary {

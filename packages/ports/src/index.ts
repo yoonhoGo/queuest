@@ -1,14 +1,34 @@
 import type {
+  Character,
   EntityId,
   InboxTodo,
+  Loadout,
   Milestone,
   Project,
   ProjectGraph,
   Task,
+  TaskComment,
   Workspace,
 } from "@queuest/domain";
 
-export interface TaskRepository {
+export interface TaskCommentRepository {
+  listTaskComments(taskId: EntityId): Promise<TaskComment[]>;
+  saveTaskComment(comment: TaskComment): Promise<void>;
+  deleteTaskComment(commentId: EntityId): Promise<void>;
+}
+
+export interface CharacterRepository {
+  getCharacter(): Promise<Character | undefined>;
+  saveCharacter(character: Character): Promise<void>;
+}
+
+export interface LoadoutRepository {
+  getLoadout(projectId: EntityId): Promise<Loadout | undefined>;
+  saveLoadout(loadout: Loadout): Promise<void>;
+  deleteLoadout(projectId: EntityId): Promise<void>;
+}
+
+export interface TaskRepository extends TaskCommentRepository {
   initialize(): Promise<void>;
   listProjectGraphs(): Promise<ProjectGraph[]>;
   saveWorkspace(workspace: Workspace): Promise<void>;
@@ -26,7 +46,8 @@ export interface InboxTodoRepository {
   deleteInboxTodo(todoId: EntityId): Promise<void>;
 }
 
-export interface QueuestRepository extends TaskRepository, InboxTodoRepository {}
+export interface QueuestRepository
+  extends TaskRepository, CharacterRepository, LoadoutRepository, InboxTodoRepository {}
 
 export interface AppData {
   inboxTodos: InboxTodo[];

@@ -1,11 +1,14 @@
 import Database from "@tauri-apps/plugin-sql";
 import type {
+  Character,
   EntityId,
   InboxTodo,
+  Loadout,
   Milestone,
   Project,
   ProjectGraph,
   Task,
+  TaskComment,
   Workspace,
 } from "@queuest/domain";
 import type { InboxTodoRepository, QueuestRepository } from "@queuest/ports";
@@ -68,6 +71,7 @@ export const SCHEMA_STATEMENTS = [
   "CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id)",
   "CREATE INDEX IF NOT EXISTS idx_milestones_project_id ON milestones(project_id)",
   "CREATE INDEX IF NOT EXISTS idx_tasks_milestone_id ON tasks(milestone_id)",
+  "CREATE INDEX IF NOT EXISTS idx_task_comments_task_id ON task_comments(task_id)",
   "CREATE INDEX IF NOT EXISTS idx_inbox_todos_created_at ON inbox_todos(created_at)",
 ];
 
@@ -103,6 +107,26 @@ interface TaskRow {
   external_ref: string | null;
 }
 
+interface TaskCommentRow {
+  id: string;
+  task_id: string;
+  body: string;
+  author: TaskComment["author"];
+  created_at: string;
+}
+
+interface CharacterRow {
+  name: string;
+  job: Character["job"];
+  sprite_id: string;
+}
+
+interface LoadoutRow {
+  project_id: string;
+  agent_tool: string | null;
+  source_tool: string | null;
+}
+
 interface InboxTodoRow {
   id: string;
   title: string;
@@ -135,6 +159,32 @@ function toTask(row: TaskRow): Task {
   };
 }
 
+function toTaskComment(row: TaskCommentRow): TaskComment {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    body: row.body,
+    author: row.author,
+    createdAt: row.created_at,
+  };
+}
+
+function toCharacter(row: CharacterRow): Character {
+  return {
+    name: row.name,
+    job: row.job,
+    spriteId: row.sprite_id,
+  };
+}
+
+function toLoadout(row: LoadoutRow): Loadout {
+  return {
+    projectId: row.project_id,
+    ...(row.agent_tool === "claude" ? { agentTool: "claude" } : {}),
+    ...(row.source_tool === "gh" ? { sourceTool: "gh" } : {}),
+  };
+}
+
 function toInboxTodo(row: InboxTodoRow): InboxTodo {
   return {
     id: row.id,
@@ -160,7 +210,15 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
   }
 
   public async listProjectGraphs(): Promise<ProjectGraph[]> {
-    const [workspaceRows, projectRows, milestoneRows, taskRows] = await Promise.all([
+    const [
+      workspaceRows,
+      projectRows,
+      milestoneRows,
+      taskRows,
+      commentRows,
+      characterRows,
+      loadoutRows,
+    ] = await Promise.all([
       this.database.select<WorkspaceRow[]>("SELECT id, name FROM workspaces ORDER BY name"),
       this.database.select<ProjectRow[]>(
         "SELECT id, workspace_id, name, repo_path, skills FROM projects ORDER BY name",
@@ -171,12 +229,35 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
       this.database.select<TaskRow[]>(
         "SELECT id, milestone_id, title, body, status, assignee, skills, blocked, external_ref FROM tasks ORDER BY title",
       ),
+      this.database.select<TaskCommentRow[]>(
+        "SELECT id, task_id, body, author, created_at FROM task_comments ORDER BY created_at, id",
+      ),
+      this.database.select<CharacterRow[]>(
+        "SELECT name, job, sprite_id FROM characters WHERE id = 1",
+      ),
+      this.database.select<LoadoutRow[]>(
+        "SELECT project_id, agent_tool, source_tool FROM loadouts",
+      ),
     ]);
 
     const workspaces = new Map<EntityId, Workspace>(
       workspaceRows.map((row) => [row.id, { id: row.id, name: row.name }]),
     );
-    const tasks = taskRows.map(toTask);
+    const commentsByTaskId = new Map<EntityId, TaskComment[]>();
+    for (const row of commentRows) {
+      const comments = commentsByTaskId.get(row.task_id) ?? [];
+      comments.push(toTaskComment(row));
+      commentsByTaskId.set(row.task_id, comments);
+    }
+    const tasks = taskRows.map((row) => {
+      const task = toTask(row);
+      const comments = commentsByTaskId.get(task.id);
+      return comments?.length ? { ...task, comments } : task;
+    });
+    const character = characterRows[0] ? toCharacter(characterRows[0]) : undefined;
+    const loadouts = new Map<EntityId, Loadout>(
+      loadoutRows.map((row) => [row.project_id, toLoadout(row)]),
+    );
 
     return projectRows.flatMap((row) => {
       const workspace = workspaces.get(row.workspace_id);
@@ -207,9 +288,77 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
           project,
           milestones,
           tasks: tasks.filter((task) => milestoneIds.has(task.milestoneId)),
+          ...(character ? { character } : {}),
+          ...(loadouts.has(project.id) ? { loadout: loadouts.get(project.id) } : {}),
         },
       ];
     });
+  }
+
+  public async listTaskComments(taskId: EntityId): Promise<TaskComment[]> {
+    const rows = await this.database.select<TaskCommentRow[]>(
+      "SELECT id, task_id, body, author, created_at FROM task_comments WHERE task_id = $1 ORDER BY created_at, id",
+      [taskId],
+    );
+    return rows.map(toTaskComment);
+  }
+
+  public async saveTaskComment(comment: TaskComment): Promise<void> {
+    await this.database.execute(
+      `INSERT INTO task_comments (id, task_id, body, author, created_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT(id) DO UPDATE SET
+         task_id = excluded.task_id,
+         body = excluded.body,
+         author = excluded.author,
+         created_at = excluded.created_at`,
+      [comment.id, comment.taskId, comment.body, comment.author, comment.createdAt],
+    );
+  }
+
+  public async deleteTaskComment(commentId: EntityId): Promise<void> {
+    await this.database.execute("DELETE FROM task_comments WHERE id = $1", [commentId]);
+  }
+
+  public async getCharacter(): Promise<Character | undefined> {
+    const rows = await this.database.select<CharacterRow[]>(
+      "SELECT name, job, sprite_id FROM characters WHERE id = 1",
+    );
+    return rows[0] ? toCharacter(rows[0]) : undefined;
+  }
+
+  public async saveCharacter(character: Character): Promise<void> {
+    await this.database.execute(
+      `INSERT INTO characters (id, name, job, sprite_id) VALUES (1, $1, $2, $3)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         job = excluded.job,
+         sprite_id = excluded.sprite_id`,
+      [character.name, character.job, character.spriteId],
+    );
+  }
+
+  public async getLoadout(projectId: EntityId): Promise<Loadout | undefined> {
+    const rows = await this.database.select<LoadoutRow[]>(
+      "SELECT project_id, agent_tool, source_tool FROM loadouts WHERE project_id = $1",
+      [projectId],
+    );
+    return rows[0] ? toLoadout(rows[0]) : undefined;
+  }
+
+  public async saveLoadout(loadout: Loadout): Promise<void> {
+    await this.database.execute(
+      `INSERT INTO loadouts (project_id, agent_tool, source_tool)
+       VALUES ($1, $2, $3)
+       ON CONFLICT(project_id) DO UPDATE SET
+         agent_tool = excluded.agent_tool,
+         source_tool = excluded.source_tool`,
+      [loadout.projectId, loadout.agentTool ?? null, loadout.sourceTool ?? null],
+    );
+  }
+
+  public async deleteLoadout(projectId: EntityId): Promise<void> {
+    await this.database.execute("DELETE FROM loadouts WHERE project_id = $1", [projectId]);
   }
 
   public async saveWorkspace(workspace: Workspace): Promise<void> {
@@ -285,6 +434,13 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
         task.externalRef ?? null,
       ],
     );
+
+    if (task.comments) {
+      await this.database.execute("DELETE FROM task_comments WHERE task_id = $1", [task.id]);
+      for (const comment of task.comments) {
+        await this.saveTaskComment(comment);
+      }
+    }
   }
 
   public async deleteTask(taskId: EntityId): Promise<void> {
