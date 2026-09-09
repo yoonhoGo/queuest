@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "com.queuest.calendar",
+  "name": "Google Calendar",
+  "version": "0.1.0",
+  "hostApi": "^1.0.0",
+  "entry": {
+    "type": "process",
+    "command": "node",
+    "args": ["--experimental-strip-types", "bin/queuest-calendar.mjs"]
+  },
+  "capabilities": ["source.calendar-events"],
+  "permissions": {
+    "network": ["www.googleapis.com"],
+    "secrets": ["calendar"]
+  },
+  "configSchema": {}
+}
