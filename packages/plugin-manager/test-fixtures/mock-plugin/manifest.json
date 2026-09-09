@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "com.queuest.mock",
+  "name": "Queuest Mock Plugin",
+  "version": "1.0.0",
+  "hostApi": "^1.0.0",
+  "entry": {
+    "type": "process",
+    "command": "node",
+    "args": ["mock-plugin.mjs"]
+  },
+  "capabilities": ["source.work-items"]
+}

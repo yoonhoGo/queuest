@@ -1,0 +1,182 @@
+import assert from "node:assert/strict";
+import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { afterEach, test } from "node:test";
+import os from "node:os";
+import path from "node:path";
+import {
+  MemoryPluginStateStore,
+  PluginManager,
+  PluginManagerError,
+  type PluginRecord,
+} from "./index.ts";
+
+const fixtureDirectory = fileURLToPath(new URL("../test-fixtures/mock-plugin", import.meta.url));
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+  );
+});
+
+test("discovers built-in and user roots and reports invalid or incompatible manifests", async () => {
+  const root = await temporaryDirectory();
+  const builtinRoot = path.join(root, "builtins");
+  const userRoot = path.join(root, "user");
+  await copyFixture(path.join(builtinRoot, "mock"));
+  await copyFixture(path.join(userRoot, "user-mock"));
+  await updateManifest(path.join(userRoot, "user-mock", "manifest.json"), {
+    id: "com.queuest.mock.user",
+    name: "Queuest User Mock Plugin",
+  });
+  await writeManifest(path.join(userRoot, "invalid", "manifest.json"), {
+    schemaVersion: 1,
+    id: "com.queuest.invalid",
+    name: "Invalid Mock Plugin",
+    version: "1.0.0",
+    hostApi: "^1.0.0",
+    entry: { type: "process", command: "node" },
+    capabilities: ["not-a-capability"],
+  });
+  await writeManifest(path.join(userRoot, "future", "manifest.json"), {
+    schemaVersion: 1,
+    id: "com.queuest.future",
+    name: "Future Mock Plugin",
+    version: "1.0.0",
+    hostApi: "^2.0.0",
+    entry: { type: "process", command: "node" },
+    capabilities: ["source.work-items"],
+  });
+
+  const manager = new PluginManager({
+    hostVersion: "1.0.0",
+    builtinDirectories: [builtinRoot],
+    userDirectories: [userRoot],
+    stateStore: new MemoryPluginStateStore(),
+  });
+  const selected = await manager.discover();
+  const all = manager.listAllPlugins();
+
+  assert.equal(selected.some((plugin) => plugin.id === "com.queuest.mock" && plugin.source === "builtin"), true);
+  assert.equal(selected.some((plugin) => plugin.id === "com.queuest.mock.user" && plugin.source === "user"), true);
+  assert.equal(all.some((plugin) => plugin.state === "invalid" && plugin.id === "com.queuest.invalid"), true);
+  assert.equal(all.some((plugin) => plugin.state === "incompatible" && plugin.id === "com.queuest.future"), true);
+  await assert.rejects(manager.activatePlugin("com.queuest.future"), (error: unknown) => {
+    return error instanceof PluginManagerError && error.code === "HOST_API_INCOMPATIBLE";
+  });
+});
+
+test("runs the repository mock plugin through a real process lifecycle", async () => {
+  const root = await temporaryDirectory();
+  const builtinRoot = path.join(root, "builtins");
+  const pluginDirectory = path.join(builtinRoot, "mock");
+  const statePath = path.join(root, "state", "plugins.json");
+  await copyFixture(pluginDirectory);
+  const warnings: string[] = [];
+  const manager = new PluginManager({
+    hostVersion: "1.0.0",
+    builtinDirectories: [builtinRoot],
+    userDirectories: [path.join(root, "user")],
+    statePath,
+    logger: { warn: (message) => warnings.push(message) },
+  });
+
+  const discovered = await manager.discover();
+  const initial = getRecord(discovered, "com.queuest.mock");
+  assert.equal(initial.installed, true);
+  assert.equal(initial.enabled, false);
+  assert.equal(initial.state, "disabled");
+
+  await manager.disablePlugin("com.queuest.mock");
+  assert.equal(manager.getPlugin("com.queuest.mock")?.state, "disabled");
+  await manager.enablePlugin("com.queuest.mock");
+  assert.equal(manager.getPlugin("com.queuest.mock")?.state, "enabled");
+  await manager.uninstallPlugin("com.queuest.mock");
+  assert.equal(manager.getPlugin("com.queuest.mock")?.state, "not-installed");
+  assert.equal(await fileExists(pluginDirectory), true);
+  await manager.installPlugin("com.queuest.mock");
+  assert.equal(manager.getPlugin("com.queuest.mock")?.state, "disabled");
+
+  const transport = await manager.activatePlugin("com.queuest.mock");
+  const child = transport.process as (typeof transport.process & { pid?: number; exitCode?: number | null });
+  assert.equal(transport.status, "running");
+  assert.equal(typeof child?.pid, "number");
+  assert.deepEqual(
+    await manager.requestPlugin<{ state: string; label: string }>(
+      "com.queuest.mock",
+      "health.check",
+      { label: "warmup" },
+    ),
+    { state: "connected", label: "warmup" },
+  );
+
+  const slow = manager.requestPlugin<{ state: string; label: string }>(
+    "com.queuest.mock",
+    "health.check",
+    { label: "slow", delayMs: 30 },
+  );
+  const fast = manager.requestPlugin<{ state: string; label: string }>(
+    "com.queuest.mock",
+    "health.check",
+    { label: "fast", delayMs: 0 },
+  );
+  assert.deepEqual(await Promise.all([slow, fast]), [
+    { state: "connected", label: "slow" },
+    { state: "connected", label: "fast" },
+  ]);
+  assert.equal(warnings.some((message) => message.includes("mock-plugin:initialize")), true);
+  assert.equal(warnings.some((message) => message.includes("mock-plugin:health.check")), true);
+
+  await manager.shutdown();
+  assert.equal(transport.status, "stopped");
+  assert.equal(child?.exitCode, 0);
+  assert.equal(warnings.some((message) => message.includes("mock-plugin:shutdown")), true);
+  assert.equal(manager.getTransport("com.queuest.mock"), undefined);
+  const persisted = JSON.parse(await readFile(statePath, "utf8")) as {
+    plugins: Record<string, { enabled: boolean }>;
+  };
+  assert.equal(persisted.plugins["com.queuest.mock"].enabled, true);
+});
+
+async function temporaryDirectory(): Promise<string> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "queuest-plugin-e2e-"));
+  temporaryDirectories.push(directory);
+  return directory;
+}
+
+async function copyFixture(targetDirectory: string): Promise<void> {
+  await cp(fixtureDirectory, targetDirectory, { recursive: true });
+}
+
+async function updateManifest(
+  manifestPath: string,
+  changes: { id: string; name: string },
+): Promise<void> {
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<string, unknown>;
+  await writeFile(
+    manifestPath,
+    `${JSON.stringify({ ...manifest, ...changes }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+async function writeManifest(manifestPath: string, manifest: Record<string, unknown>): Promise<void> {
+  await mkdir(path.dirname(manifestPath), { recursive: true });
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
+function getRecord(records: readonly PluginRecord[], id: string): PluginRecord {
+  const record = records.find((plugin) => plugin.id === id);
+  assert.ok(record);
+  return record;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
