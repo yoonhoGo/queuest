@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Queuest reads your Apple Calendar events to show local quest context.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Queuest reads your Apple Reminders to show local quest context.</string>
+	<!-- Fallback strings for the pre-macOS 14 requestAccess path. -->
+	<key>NSCalendarsUsageDescription</key>
+	<string>Queuest reads your Apple Calendar events to show local quest context.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Queuest reads your Apple Reminders to show local quest context.</string>
+</dict>
+</plist>

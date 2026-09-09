@@ -3,8 +3,8 @@
 ## 목표
 
 Queuest는 앞으로 추가될 외부 연동을 앱 본체의 구현과 분리한다.
-GitHub·Jira·Calendar는 첫 번째 플러그인이며, 향후 어떤 제공자도 같은 Host 계약으로
-설치·활성화·비활성화·업데이트·삭제할 수 있어야 한다.
+GitHub·Jira·Google Calendar·Apple EventKit은 첫 번째 플러그인이며, 향후 어떤 제공자도
+같은 Host 계약으로 설치·활성화·비활성화·업데이트·삭제할 수 있어야 한다.
 
 플러그인은 Queuest의 React 화면, SQLite, 내부 도메인 타입을 직접 가져오지 않는다.
 Queuest Host와 플러그인 사이에는 버전이 있는 JSON 기반 프로토콜만 둔다.
@@ -20,7 +20,10 @@ Queuest Host
 └── Plugin Process       stdio JSON 프로토콜로 실행
     ├── GitHub API
     ├── Jira API
-    └── Calendar API
+    ├── Google Calendar API
+    ├── Apple Calendar adapter
+    ├── Apple Reminders adapter
+    └── Swift EventKit helper (nested signed native process)
 ```
 
 현재 계약은 `@queuest/plugin-contracts`에 있다. 첫 버전은 프로세스 플러그인을
@@ -53,6 +56,9 @@ namespace로 분리하고 set/get/delete와 missing-item 오류를 제공하며,
 첫 실제 구현인 `@queuest/plugin-github`가 이 경계를 사용해 GitHub REST 읽기 흐름까지
 연결한다. `@queuest/plugin-jira`도 같은 경계를 사용해 Atlassian Cloud REST 읽기 흐름과
 process E2E까지 연결했고, `@queuest/plugin-calendar`도 Google Calendar REST 읽기 흐름과
+process E2E까지 연결했다. Apple EventKit은 `@queuest/plugin-eventkit`의 공통 JSONL
+client와 Swift helper 아래에 `@queuest/plugin-apple-calendar`·
+`@queuest/plugin-apple-reminders`를 두며, native process 수명주기와 deterministic no-TCC
 process E2E까지 연결했다. 승인·설정 UI 연결은 아직 남아 있다.
 
 별도 프로세스는 격리의 경계이지 완전한 보안 샌드박스가 아니다. Connector 플러그인은
@@ -68,8 +74,8 @@ Host 정책 경계이며, OS-level network/filesystem sandbox를 구현하지는
 
 | Capability | 의미 | 첫 구현 |
 | --- | --- | --- |
-| `source.work-items` | 외부 작업 항목을 페이지 단위로 조회 | GitHub (`@queuest/plugin-github`), Jira |
-| `source.calendar-events` | 기간·캘린더 기준으로 일정 조회 | Google Calendar (`@queuest/plugin-calendar`) |
+| `source.work-items` | 외부 작업 항목을 페이지 단위로 조회 | GitHub (`@queuest/plugin-github`), Jira, Apple Reminders |
+| `source.calendar-events` | 기간·캘린더 기준으로 일정 조회 | Google Calendar (`@queuest/plugin-calendar`), Apple Calendar |
 | `agent.runner` | 태스크를 실행하고 취소 | AI 단계에서 추가 |
 
 GitHub와 Jira의 결과는 외부 작업 항목으로 반환한 뒤 Host가 Task로 변환한다.
@@ -157,6 +163,54 @@ manifest를 실제 package에서 발견하고, network·secret 권한 승인 전
 검증한다. `health.check`는 의도적으로 Calendar credential을 읽거나 Google에 접속하지 않는
 offline 확인이다.
 
+Apple EventKit Connector는 외부 API credential 대신 macOS platform permission만 요청한다.
+Calendar와 Reminders manifest는 다음과 같다.
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "com.queuest.apple-calendar",
+  "name": "Apple Calendar",
+  "version": "0.1.0",
+  "hostApi": "^1.0.0",
+  "entry": {
+    "type": "process",
+    "command": "node",
+    "args": ["--experimental-strip-types", "bin/queuest-apple-calendar.mjs"]
+  },
+  "capabilities": ["source.calendar-events"],
+  "permissions": {
+    "platform": ["macos.eventkit.calendar"]
+  },
+  "configSchema": {}
+}
+```
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "com.queuest.apple-reminders",
+  "name": "Apple Reminders",
+  "version": "0.1.0",
+  "hostApi": "^1.0.0",
+  "entry": {
+    "type": "process",
+    "command": "node",
+    "args": ["--experimental-strip-types", "bin/queuest-apple-reminders.mjs"]
+  },
+  "capabilities": ["source.work-items"],
+  "permissions": {
+    "platform": ["macos.eventkit.reminders"]
+  },
+  "configSchema": {}
+}
+```
+
+Apple manifest에는 network·secret·filesystem 권한이 없다. Permission Broker는
+`macos.eventkit.calendar` 또는 `macos.eventkit.reminders` 승인을 process spawn 전에
+확인하고, initialize에는 승인된 platform 권한의 부분집합만 전달한다. 이 Host 권한이
+승인되어도 macOS TCC 승인이 자동으로 부여되는 것은 아니다.
+
 필수 검증 대상은 다음과 같다.
 
 - manifest schema 버전
@@ -189,6 +243,8 @@ GitHub의 Link 헤더에서 다음 숫자 page만 읽어 다시 고정 경로를
 initialize
 health.check
 connection.status
+tcc.status
+tcc.request-access
 source.work-items.list
 source.calendar-events.list
 shutdown
@@ -230,6 +286,30 @@ typed 오류로 처리한다. `connection.status`만 credential을 읽어 고정
 offline 메서드다. credential/auth/not-found/rate-limit/HTTP/malformed-response/network
 실패는 token/API response를 오류 message·stderr·로그·protocol 응답에 복제하지 않는다.
 
+Apple EventKit process는 network·secret·filesystem 권한이 아니라 resource별 platform
+permission을 검증한다. `@queuest/plugin-eventkit`은 Swift `EventKitJSONL.swift`를 별도
+native process로 실행하고, JavaScript 경계에서는 JSONL request id·timeout·typed error와
+graceful shutdown을 유지한다. Calendar helper는
+`source.calendar-events.list`에서 calendar ID와 RFC3339 시간 범위를 받아
+`ExternalCalendarEvent`로 매핑하고, Reminders helper는
+`source.work-items.list`에서 선택적 reminder list ID를 받아 `ExternalWorkItem`으로
+매핑한다. 두 capability 모두 page size 250과 숫자형 opaque cursor를 사용한다.
+
+EventKit은 읽기 전용 권한을 제공하지 않는다. 따라서 macOS 14 이상에서 일정과
+미리알림을 읽으려면 각각 `requestFullAccessToEvents`와
+`requestFullAccessToReminders`를 먼저 성공시켜 `.fullAccess` 상태가 되어야 한다. macOS
+14 미만에서는 helper가 `requestAccess(to:)`로 폴백한다. `health.check`는 초기화와 현재
+TCC 상태만 확인하고 prompt를 띄우지 않으며, Host/UI가 명시적으로 `tcc.request-access`를
+호출할 때만 사용자 동의 창을 요청한다. `.notDetermined`, `.denied`, `.restricted`,
+`.writeOnly`와 native process/프로토콜 오류는 token 없이 typed error와 `ConnectionStatus`로
+전달한다.
+
+이 local path에는 OAuth, access token, Keychain credential, network request가 없다.
+`connectionId`는 Host가 연결을 식별하기 위한 로컬 문자열이며, EventKit database는
+Apple이 제공하는 `EKEventStore`를 통해서만 읽는다. 현재 plugin은 목록 조회·연결 상태·TCC
+상태까지만 노출하고, EventKit create/update/delete 또는 외부 CalendarEvent/Task 저장은
+호출하지 않는다.
+
 Plugin transport는 플러그인이 보낸 stderr를 진단 로그로 전달하므로 credential 값을
 stderr에 쓰지 않는 것이 플러그인 경계의 규칙이며, transport 자체는 secret redaction
 계층이 아니다. 취소 신호와 응답 크기 제한은 아직 후속 transport 경계로 남아 있다.
@@ -266,9 +346,34 @@ discover → validate → show permissions → install → enable → connect �
 차단하는 범위다. `installPlugin`과 `uninstallPlugin`은 파일 시스템을 변경하지
 않으므로, 압축 해제·업데이트·실제 삭제와 권한 승인 UI는 별도 구현이 필요하다.
 
-초기에는 정적 레지스트리로 GitHub·Jira·Calendar를 번들해도 된다. 중요한 것은
-번들 플러그인도 동일한 manifest·프로토콜·Host 경계를 사용하는 것이다. 이후 사용자
-플러그인 디렉터리와 설치 UI를 추가해도 앱 본체의 도메인 코드는 바뀌지 않아야 한다.
+초기에는 정적 레지스트리로 GitHub·Jira·Google Calendar·Apple EventKit을 번들해도 된다.
+중요한 것은 번들 플러그인도 동일한 manifest·프로토콜·Host 경계를 사용하는 것이다. 이후
+사용자 플러그인 디렉터리와 설치 UI를 추가해도 앱 본체의 도메인 코드는 바뀌지 않아야 한다.
+
+Apple EventKit은 JavaScript process와 Swift native helper를 함께 배포한다. helper는
+`packages/plugin-eventkit/native/build.sh`로 빌드하며 `Info.plist`를
+`__TEXT,__info_plist`에 embedding하고 code sign한다. 로컬 기본값은 ad-hoc sign이고,
+배포 빌드에서는 `QUEUEST_EVENTKIT_CODESIGN_IDENTITY`에 Developer ID Application
+identity를 지정한다. Tauri 설정은 helper를
+`Contents/Resources/eventkit/queuest-eventkit`에 포함하고 앱의
+`apps/desktop/src-tauri/Info.plist`·`Entitlements.plist`를 적용한다.
+
+앱과 helper는 같은 Team ID로 서명해야 TCC 승인과 배포 검증이 예측 가능하다. 외부
+identity를 지정한 배포 절차는 다음을 확인한다.
+
+```bash
+QUEUEST_EVENTKIT_CODESIGN_IDENTITY="Developer ID Application: <name> (<team-id>)" \
+  npm run build:native --workspace @queuest/plugin-eventkit
+npm run tauri -- build
+codesign --verify --deep --strict --verbose=2 \
+  apps/desktop/src-tauri/target/release/bundle/macos/queuest.app
+codesign -dvv --entitlements :- \
+  apps/desktop/src-tauri/target/release/bundle/macos/queuest.app/Contents/Resources/eventkit/queuest-eventkit
+```
+
+서명된 helper의 embedded usage descriptions가 없거나 helper가 다른 identity로 다시
+서명되면 TCC prompt가 거부되거나 기존 동의가 다른 실행 파일로 분리될 수 있다. CI와
+notarization에서는 helper 서명 후 Tauri가 만든 nested resource와 최종 app을 함께 검증한다.
 
 ## 데이터와 인증 경계
 
@@ -336,6 +441,23 @@ provisioning은 Host/UI의 경계다. Calendar connector는 이미 provisioned �
 읽고 검증·사용하는 read-only process일 뿐이며, OAuth 흐름이나 일정 쓰기 API를 구현하지
 않는다.
 
+### Apple EventKit local path
+
+Apple EventKit은 OAuth가 필요한 원격 provider가 아니다. Host는
+`{ pluginId: "com.queuest.apple-calendar", name: connectionId }` 또는
+`{ pluginId: "com.queuest.apple-reminders", name: connectionId }`에 token을 저장하지
+않으며, Apple plugin manifest도 `secrets`와 `network`를 선언하지 않는다. `connectionId`는
+요청 상관관계와 향후 연결 설정을 위한 비밀이 아닌 로컬 식별자다. JavaScript plugin은
+승인된 platform permission을 Swift helper에 전달하고, helper는 `EKEventStore`를 통해
+macOS의 로컬 Calendar/Reminders 저장소만 읽는다.
+
+macOS 14 이상 full-access API를 사용하려면 앱과 helper의 Info.plist에 각각
+`NSCalendarsFullAccessUsageDescription`와 `NSRemindersFullAccessUsageDescription`를
+넣어야 한다. Tauri 앱은 `apps/desktop/src-tauri/Info.plist`에서 이를 선언하고,
+helper는 `packages/plugin-eventkit/native/Info.plist`를 executable에 embed한다. Sandbox
+또는 hardened-runtime 배포에서는 `com.apple.security.personal-information.calendars`
+entitlement를 앱과 helper에 적용하고, 최종 nested code signing에서 이를 보존한다.
+
 ## 보안 등급
 
 ### Connector
@@ -381,6 +503,23 @@ rate-limit, HTTP, malformed response, network failure는 token/API response를 �
 UI import, CalendarEvent 로컬 저장·Task 변환과 OAuth/consent/token refresh/provisioning은
 후속 Host/UI 범위다.
 
+Apple EventKit Connector의 read-only scope는 macOS 로컬 Calendar 일정과 Reminders 항목의
+기간·목록 기반 조회, `connection.status`, `tcc.status`, `tcc.request-access`다. Apple
+Calendar event는 `providerId: "apple-calendar"`, local connection ID, EventKit identifier,
+calendar ID, title, 시작·종료 시각, all-day 여부와 `confirmed`·`tentative`·`cancelled`
+상태를 가진 `ExternalCalendarEvent`로 매핑한다. Apple Reminders item은
+`providerId: "apple-reminders"`, calendar/list title, stable external ID/ref, title/body,
+open/closed status와 updatedAt를 가진 `ExternalWorkItem`으로 매핑한다.
+
+두 manifest는 각각 `macos.eventkit.calendar`와 `macos.eventkit.reminders` platform
+permission만 선언한다. Permission Broker 승인과 macOS TCC full-access 승인은 별개이며,
+승인 전에는 process를 spawn하지 않는다. missing/denied/restricted/write-only TCC,
+malformed native response, native process timeout/exit는 `EventKitPluginError`와 안전한
+`ConnectionStatus`로 변환한다. OAuth 동의·token refresh·Credential Store provisioning,
+network 호출, 일정/미리알림 write, UI import, CalendarEvent·Task 저장과
+`externalRef` deduplication은 후속 Host/UI 범위다. Full access를 확보해도 현재 plugin은
+read-only methods만 호출한다.
+
 ### Trusted
 
 AI 실행, 로컬 명령, 파일 변환처럼 강한 권한이 필요한 플러그인이다.
@@ -406,12 +545,16 @@ AI 실행, 로컬 명령, 파일 변환처럼 강한 권한이 필요한 플러�
 7. Calendar API 플러그인 (완료: Google Calendar read-only REST mapping, Bearer access-token
    auth, permission boundary, timed/all-day event mapping, pagination, safe errors, offline
    health, process E2E)
-8. 사용자 설치·권한 승인 UI와 업데이트 (후속)
-9. `agent.runner` 기반 AI 플러그인
+8. Apple EventKit 플러그인 (완료: shared Swift EventKit helper, full-access/TCC gate,
+   platform permission boundary, local read-only Calendar/Reminders mapping, helper signing,
+   Tauri Info.plist/entitlements/resources, process E2E)
+9. 사용자 설치·권한 승인 UI와 업데이트 (후속)
+10. `agent.runner` 기반 AI 플러그인
 
-외부 서비스에서 Queuest로 가져오는 단방향 흐름을 먼저 유지한다. GitHub, Jira와 Google
-Calendar connector의 API 조회·변환은 완료했지만 UI import와 local Task/CalendarEvent 저장,
-`externalRef` deduplication은 아직 구현하지 않았다. 외부 서비스에 수정 내용을 되돌려
-쓰는 provider write 기능은 각 capability가 안정화된 뒤 별도로 설계하며, Google Calendar
-OAuth 동의·token refresh·credential provisioning과 Jira OAuth/3LO, self-hosted Jira/Data
-Center 지원도 후속 Host/UI 범위다.
+외부 서비스에서 Queuest로 가져오는 단방향 흐름을 먼저 유지한다. GitHub, Jira, Google
+Calendar와 Apple EventKit connector의 조회·변환은 완료했지만 UI import와 local
+Task/CalendarEvent 저장, `externalRef` deduplication은 아직 구현하지 않았다. 외부 서비스에
+수정 내용을 되돌려 쓰는 provider write 기능은 각 capability가 안정화된 뒤 별도로 설계하며,
+Google Calendar OAuth 동의·token refresh·credential provisioning, Apple EventKit UI/TCC
+설정과 write capability, Jira OAuth/3LO·self-hosted Jira/Data Center 지원도 후속 Host/UI
+범위다.

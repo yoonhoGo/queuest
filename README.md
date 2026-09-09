@@ -25,6 +25,9 @@ packages/plugin-permissions 권한 정규화·승인 브로커·Credential Store
 packages/plugin-github   GitHub API 읽기 전용 process connector
 packages/plugin-jira     Jira Cloud API 읽기 전용 process connector
 packages/plugin-calendar Google Calendar 읽기 전용 process connector
+packages/plugin-eventkit 공통 Swift EventKit native helper와 JSONL 경계
+packages/plugin-apple-calendar Apple Calendar EventKit 읽기 전용 process connector
+packages/plugin-apple-reminders Apple Reminders EventKit 읽기 전용 process connector
 packages/adapter-sqlite   Tauri SQL 기반 로컬 SQLite 어댑터
 packages/adapter-claude   claude -p 실행 어댑터
 packages/adapter-github   기존 GitHub 경계 어댑터 (UI 흐름 전환 예정)
@@ -105,4 +108,36 @@ npm run check
   `accessToken`을 Credential Store에 넣는 provisioning은 Host/UI 경계이며 이 read-only
   connector에 포함하지 않습니다. 일정 쓰기, UI import, CalendarEvent 저장과 Task 변환도
   아직 연결하지 않습니다.
+- Apple EventKit connector는 `com.queuest.apple-calendar`와
+  `com.queuest.apple-reminders` 두 개의 process plugin으로 제공됩니다. 각각
+  `source.calendar-events` 또는 `source.work-items` capability와
+  `macos.eventkit.calendar` 또는 `macos.eventkit.reminders` platform permission만
+  선언하며, network·secret·filesystem 권한과 OAuth credential을 요구하지 않습니다.
+  Host의 Permission Broker 승인이 process spawn보다 먼저 필요하고, 그 다음에도 macOS의
+  EventKit TCC 사용자 승인이 별도로 필요합니다.
+
+  EventKit은 읽기 전용 권한을 제공하지 않으므로 일정과 미리알림 목록을 읽으려면
+  macOS 14 이상에서 각각 full access를 허용해야 합니다. Swift helper는
+  `requestFullAccessToEvents`/`requestFullAccessToReminders`를 사용하고, 구버전 macOS에서는
+  호환용 `requestAccess`로 폴백합니다. TCC 요청은 `tcc.request-access`에서만 수행하며,
+  `health.check`는 권한을 자동으로 요청하지 않습니다. 앱과 helper에는
+  `NSCalendarsFullAccessUsageDescription`·`NSRemindersFullAccessUsageDescription`가
+  포함되고, 샌드박스/하드닝 배포에는 Calendar entitlement와 사용자 승인이 함께 필요합니다.
+
+  native helper는 [packages/plugin-eventkit/native/build.sh](./packages/plugin-eventkit/native/build.sh)가
+  EventKit 프레임워크와 usage-description Info.plist를 함께 빌드하고 로컬에서는 ad-hoc
+  서명합니다. Tauri bundle은 `Contents/Resources/eventkit/queuest-eventkit`으로 helper를
+  포함합니다. 배포용 서명은 앱과 같은 Team ID의 Developer ID identity를 지정해야 합니다.
+
+  ```bash
+  npm run build:native --workspace @queuest/plugin-eventkit
+  QUEUEST_EVENTKIT_CODESIGN_IDENTITY="Developer ID Application: <name> (<team-id>)" \
+    npm run build:native --workspace @queuest/plugin-eventkit
+  npm run tauri -- build
+  ```
+
+  현재 EventKit plugin은 로컬 EventKit 데이터의 목록 조회와 연결/TCC 상태 확인만
+  구현합니다. OAuth 동의·authorization code·refresh token·Keychain provisioning은
+  필요하지 않으며, 일정/미리알림 UI, CalendarEvent·Task 저장과 중복 제거, 외부 데이터
+  생성·수정·삭제(write)는 아직 Host/UI 범위에 연결하지 않았습니다.
 - 커밋·푸시·클라우드 동기화·팀 공유는 이 초기화 범위에 포함하지 않습니다.

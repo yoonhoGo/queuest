@@ -16,6 +16,7 @@ Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일�
 - [x] Todo-first 진입과 선택 프로젝트 보드의 SQLite 연결
 - [x] 화면에서 프로젝트·마일스톤·태스크를 생성·수정·삭제
 - [x] 외부 플러그인 manifest·프로토콜·정규화 타입 계약
+- [x] Apple EventKit Calendar·Reminders 로컬 read-only plugin과 native process E2E
 - [ ] AI·GitHub 어댑터를 실제 UI 흐름에 연결
 
 ## P0 — 로컬 MVP
@@ -103,6 +104,7 @@ Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일�
 - [x] GitHub API 플러그인
 - [x] Jira API 플러그인
 - [x] Calendar API 플러그인
+- [x] Apple EventKit Calendar·Reminders plugin과 공통 Swift native helper
 - [x] Plugin Manager의 발견·검증·설치 상태·활성화·비활성화
 - [x] 권한 브로커·승인 저장소와 macOS Keychain Credential Store 경계
 - [ ] 플러그인 설정 JSON Schema 기반 화면
@@ -187,6 +189,36 @@ provisioning을 구현하지 않는다. Host/UI가 OAuth 결과인 `accessToken`
 넣고, connector에는 승인된 network·secret 권한과 연결 ID만 전달하는 것이 OAuth 경계다.
 일정 쓰기, UI import, CalendarEvent 로컬 저장·Task 변환은 후속 범위다.
 
+`@queuest/plugin-apple-calendar`와 `@queuest/plugin-apple-reminders`는 macOS EventKit
+로컬 데이터 조회를 위한 read-only Connector다. 공통 `@queuest/plugin-eventkit`이 Swift
+`EventKitJSONL.swift` helper를 별도 process로 실행하며, Calendar는
+`source.calendar-events`와 `macos.eventkit.calendar`, Reminders는 `source.work-items`와
+`macos.eventkit.reminders`를 선언한다. 두 manifest 모두 network·secret·filesystem 권한을
+선언하지 않고, OAuth·access token·Credential Store provisioning도 사용하지 않는다.
+
+Plugin Manager는 platform permission을 먼저 승인해야 process를 spawn하고, helper의
+`initialize`에는 승인된 platform 권한만 전달한다. 이것은 macOS TCC 동의와 별개의 Host
+권한이다. helper는 macOS 14 이상에서 읽기에 필요한 EventKit full access를
+`tcc.request-access`로 요청하고, `tcc.status`와 `health.check`로 상태를 확인한다. 권한을
+허용하지 않았거나 read access가 없으면 목록 조회를 수행하지 않으며, `health.check`는
+사용자에게 권한을 자동 요청하지 않는다.
+
+앱의 `Info.plist`와 helper의 embedded `Info.plist`에는
+`NSCalendarsFullAccessUsageDescription`와 `NSRemindersFullAccessUsageDescription`가 있고,
+Tauri bundle은 `Contents/Resources/eventkit/queuest-eventkit`에 helper를 포함한다.
+`apps/desktop/src-tauri/Entitlements.plist`와 native helper entitlements는 Calendar
+personal-information entitlement를 선언한다. `packages/plugin-eventkit/native/build.sh`는
+Info.plist를 helper의 `__TEXT,__info_plist`에 포함하고 helper를 서명한다. 로컬은 ad-hoc
+서명으로 빌드할 수 있지만, 배포 시에는 앱과 같은 Team ID의 Developer ID identity로
+helper와 Tauri app을 모두 서명하고 nested resource의 `codesign --verify --deep`를 확인해야
+한다.
+
+이 완료는 native helper와 plugin process의 권한 경계·JSONL 수명주기·결정적 no-TCC E2E까지다.
+EventKit에는 read-only TCC 권한이 없으므로 현재 구현은 full access를 받더라도 목록 조회만
+호출한다. 일정/미리알림 UI, 연결 설정·TCC 안내 화면, CalendarEvent·Task 저장 및
+`externalRef` deduplication, EventKit에 생성·수정·삭제를 되돌려 쓰는 operation은 후속
+Host/UI 범위이며 별도의 write capability와 명시적 사용자 확인이 필요하다.
+
 이 완료는 API Connector 범위에 한정된다. 가져오기 메뉴, 대상 마일스톤 선택, 외부 항목을
 로컬 Task로 저장하는 UI 흐름과 `externalRef` 중복 방지는 아직 구현하지 않았고, GitHub에
 수정 내용을 되돌려 쓰는 create/update/close/comment 작업도 읽기 전용 범위 밖의 후속
@@ -224,6 +256,11 @@ Google Calendar Connector도 UI 일정 화면·동기화, 일정 쓰기, Calenda
 변환, OAuth 동의·token refresh·credential provisioning은 이 read-only API Connector 완료에
 포함하지 않는다.
 
+Apple EventKit Connector도 native process와 TCC 권한 확인까지 완료했지만, EventKit 목록을
+표시하는 UI, local CalendarEvent·Task 저장, 일정/미리알림 write operation은 아직 구현하지
+않는다. OAuth 없는 local path를 유지하고, 향후 UI에서 별도 사용자 확인을 거친 뒤 capability를
+확장한다.
+
 ### 9. MVP 검증과 배포
 
 - [x] 도메인 계산·상태 전이 단위 테스트
@@ -231,11 +268,13 @@ Google Calendar Connector도 UI 일정 화면·동기화, 일정 쓰기, Calenda
 - [x] GitHub 응답 변환 테스트 (`@queuest/plugin-github`)
 - [x] Jira 응답 변환·process boundary 테스트 (`@queuest/plugin-jira`)
 - [x] Calendar 응답 변환·process boundary 테스트 (`@queuest/plugin-calendar`)
+- [x] Apple EventKit 응답 변환·platform permission·process boundary 테스트
+- [x] EventKit Swift helper의 Info.plist embedding·서명 및 Tauri resource build metadata
 - [ ] 로컬 Task `externalRef` 중복 방지 테스트
 - [ ] AI 결과 변환·취소·오류 테스트
 - [ ] 키보드 포커스·접근성 라벨·색상 외 상태 표현 점검
 - [ ] 빈 프로젝트·태스크가 많은 프로젝트·도구 미설치 상태 점검
-- [ ] macOS 번들 설치 및 실제 메뉴바·팝오버 스모크 테스트
+- [ ] macOS 번들 설치·실제 메뉴바·팝오버 및 TCC consent 스모크 테스트
 
 ### P0 완료 기준
 
