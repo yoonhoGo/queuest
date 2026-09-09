@@ -103,10 +103,15 @@ Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일�
 - [ ] GitHub API 플러그인
 - [ ] Jira API 플러그인
 - [ ] Calendar API 플러그인
-- [x] Plugin Manager의 발견·검증·설치·활성화·비활성화
+- [x] Plugin Manager의 발견·검증·설치 상태·활성화·비활성화
 - [ ] 권한 브로커와 Keychain 연결 저장소
 - [ ] 플러그인 설정 JSON Schema 기반 화면
 - [ ] 플러그인 프로세스 타임아웃·취소·로그 경계
+
+현재 Plugin Manager 최소 수직 슬라이스는 내장·사용자 디렉터리의 manifest 검증,
+Host API 호환성 확인, reversible lifecycle state, process stdio transport와
+mock-plugin E2E를 제공한다. transport timeout·stderr·graceful shutdown은 포함되며,
+취소와 응답 크기 제한은 후속 경계로 남아 있다.
 
 완료 조건: 내장 플러그인과 사용자 설치 플러그인이 동일한 manifest·프로토콜로
 검증되고, 앱 본체가 플러그인의 구현이나 외부 API 타입을 직접 의존하지 않는다.

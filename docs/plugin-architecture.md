@@ -26,6 +26,14 @@ Queuest Host
 현재 계약은 `@queuest/plugin-contracts`에 있다. 첫 버전은 프로세스 플러그인을
 대상으로 하지만, 계약 자체는 특정 언어·런타임에 종속되지 않는다.
 
+최소 수직 슬라이스의 Host 런타임은 `@queuest/plugin-manager`에 있다. `PluginManager`는
+설정된 내장·사용자 플러그인 루트(또는 명시된 패키지 디렉터리)를 발견하고, 각
+`manifest.json`을 `parsePluginManifest`로 검증한 뒤 Host API 호환 여부와 수명주기
+상태를 제공한다. `PluginTransport`는 활성화된 process entry를 플러그인 디렉터리를
+기준으로 실행하고, `JsonPluginStateStore`는 활성화 메타데이터만 원자적으로 저장한다.
+설치·삭제는 이 단계에서 디렉터리를 복사하거나 지우지 않고 reversible state flag만
+변경한다.
+
 별도 프로세스는 격리의 경계이지 완전한 보안 샌드박스가 아니다. 플러그인 프로세스가
 운영체제의 네트워크·파일 시스템 권한을 그대로 가지지 않도록 Connector 플러그인은
 Host가 중개하는 API와 Keychain만 사용하게 한다. 강한 권한이 필요한 플러그인은
@@ -95,8 +103,11 @@ source.calendar-events.list
 shutdown
 ```
 
-모든 요청과 응답은 `protocolVersion`, `id`를 포함한다. Host는 타임아웃·취소·응답
-크기 제한·잘못된 JSON을 처리하고, 플러그인 오류를 앱 오류와 분리해서 표시한다.
+모든 요청과 응답은 `protocolVersion`, `id`를 포함한다. 최소 수직 슬라이스의 Host
+transport는 request id 상관관계, 요청 타임아웃, 잘못된 JSON·응답과 일치하지 않는
+응답의 격리, 프로세스 종료, stderr 로그, `shutdown` 후 graceful exit를 처리하고,
+플러그인 오류를 앱 오류와 분리해서 전달한다. 취소 신호와 응답 크기 제한은 아직
+후속 transport 경계로 남아 있다.
 
 플러그인이 반환하는 외부 작업 항목은 다음 정보를 포함한다.
 
@@ -117,13 +128,18 @@ discover → validate → show permissions → install → enable → connect �
 
 필수 관리 기능은 다음과 같다.
 
-- 로컬 번들 또는 압축 패키지 설치
+- 로컬 번들 또는 압축 패키지 설치 (후속 단계)
 - 활성화·비활성화
 - 연결 설정과 상태 확인
-- 버전 고정·업데이트
+- 버전 고정·업데이트 (후속 단계)
 - 권한 변경 확인
 - 로그 확인
-- 삭제
+- 삭제 (후속 단계)
+
+현재 최소 구현은 이미 존재하는 내장·사용자 디렉터리를 발견하고, manifest를
+검증한 뒤 설치·활성화·비활성화 상태를 보존하는 범위다. `installPlugin`과
+`uninstallPlugin`은 파일 시스템을 변경하지 않으므로, 압축 해제·업데이트·실제
+삭제와 권한 승인 UI는 별도 구현이 필요하다.
 
 초기에는 정적 레지스트리로 GitHub·Jira·Calendar를 번들해도 된다. 중요한 것은
 번들 플러그인도 동일한 manifest·프로토콜·Host 경계를 사용하는 것이다. 이후 사용자
