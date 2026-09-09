@@ -349,6 +349,86 @@ test("runs the Jira plugin through the manager process boundary after approval",
   assert.equal(manager.getTransport(pluginId), undefined);
 });
 
+test("runs the Calendar plugin through the manager process boundary after approval", async () => {
+  const pluginDirectory = fileURLToPath(new URL("../../plugin-calendar", import.meta.url));
+  const pluginId = "com.queuest.calendar";
+  const requestedPermissions = {
+    network: ["www.googleapis.com"],
+    secrets: ["calendar"],
+  };
+  const spawnCalls: Array<{ command: string; args: string[]; options: SpawnOptions }> = [];
+  const spawn: PluginSpawn = (command, args, options) => {
+    spawnCalls.push({ command, args: [...args], options });
+    return spawnChildProcess(command, [...args], options) as unknown as PluginProcess;
+  };
+  const manager = new PluginManager({
+    hostVersion: "1.0.0",
+    directories: [{ path: pluginDirectory, source: "builtin" }],
+    stateStore: new MemoryPluginStateStore(),
+    permissionBroker: new PermissionBroker(new MemoryPermissionApprovalStore()),
+    spawnProcess: spawn,
+    initializeOnActivate: false,
+  });
+
+  const discovered = await manager.discover();
+  const record = getRecord(discovered, pluginId);
+  assert.equal(record.source, "builtin");
+  assert.equal(record.manifest?.entry.command, "node");
+  assert.deepEqual(record.manifest?.entry.args, [
+    "--experimental-strip-types",
+    "bin/queuest-calendar.mjs",
+  ]);
+  assert.deepEqual(record.manifest?.capabilities, ["source.calendar-events"]);
+  assert.deepEqual(record.manifest?.permissions, requestedPermissions);
+  assert.deepEqual((await manager.inspectPluginPermissions(pluginId)).missing, requestedPermissions);
+
+  await assert.rejects(manager.activatePlugin(pluginId), (error: unknown) => {
+    return error instanceof PluginPermissionApprovalError && error.code === "PLUGIN_PERMISSION_APPROVAL_REQUIRED";
+  });
+  assert.equal(spawnCalls.length, 0, "permission denial must happen before a child process starts");
+  assert.equal(manager.getTransport(pluginId), undefined);
+
+  await manager.approvePluginPermissions(pluginId, requestedPermissions);
+  assert.deepEqual(await manager.getApprovedPluginPermissions(pluginId), requestedPermissions);
+  const transport = await manager.activatePlugin(pluginId);
+  assert.equal(transport.status, "running");
+  const child = transport.process as (PluginProcess & { pid?: number; exitCode?: number | null }) | undefined;
+  assert.equal(typeof child?.pid, "number");
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0].command, "node");
+  assert.deepEqual(spawnCalls[0].args, [
+    "--experimental-strip-types",
+    "bin/queuest-calendar.mjs",
+  ]);
+  assert.notEqual(spawnCalls[0].options.shell, true, "PluginManager must launch without a shell");
+
+  const initialize = await manager.requestPlugin<{ initialized: boolean }>(
+    pluginId,
+    "initialize",
+    {
+      host: {
+        protocolVersion: 1,
+        appId: "com.yoonhogo.queuest",
+        appVersion: "1.0.0",
+      },
+      grantedPermissions: requestedPermissions,
+    } as unknown as JsonObject,
+  );
+  assert.deepEqual(initialize, { initialized: true });
+
+  // health.check is intentionally local-only: this real process must not read
+  // Calendar credentials or contact Google while proving it is initialized.
+  assert.deepEqual(
+    await manager.requestPlugin<{ state: string }>(pluginId, "health.check", {}),
+    { state: "connected" },
+  );
+
+  await manager.shutdown();
+  assert.equal(transport.status, "stopped");
+  assert.equal(child?.exitCode, 0);
+  assert.equal(manager.getTransport(pluginId), undefined);
+});
+
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "queuest-plugin-e2e-"));
   temporaryDirectories.push(directory);
