@@ -103,6 +103,7 @@ export function hasMissingPermissions(state: Pick<PluginPermissionState, "missin
 export function isEmptyPermissions(input: PermissionInput): boolean {
   const permissions = normalizePermissions(input);
   return (
+    (permissions.platform?.length ?? 0) === 0 &&
     (permissions.network?.length ?? 0) === 0 &&
     (permissions.secrets?.length ?? 0) === 0 &&
     (permissions.filesystem?.length ?? 0) === 0

@@ -21,7 +21,31 @@ import {
 } from "./index.ts";
 
 const fixtureDirectory = fileURLToPath(new URL("../test-fixtures/mock-plugin", import.meta.url));
+const eventKitNativeMockPath = fileURLToPath(new URL("../test-fixtures/eventkit-native-mock.mjs", import.meta.url));
 const temporaryDirectories: string[] = [];
+
+const appleEventKitPlugins = [
+  {
+    id: "com.queuest.apple-calendar",
+    packageName: "plugin-apple-calendar",
+    name: "Apple Calendar",
+    resource: "calendar",
+    capability: "source.calendar-events",
+    permission: "macos.eventkit.calendar",
+    entry: "bin/queuest-apple-calendar.mjs",
+    healthAccountLabel: "Mock Apple Calendar",
+  },
+  {
+    id: "com.queuest.apple-reminders",
+    packageName: "plugin-apple-reminders",
+    name: "Apple Reminders",
+    resource: "reminders",
+    capability: "source.work-items",
+    permission: "macos.eventkit.reminders",
+    entry: "bin/queuest-apple-reminders.mjs",
+    healthAccountLabel: "Mock Apple Reminders",
+  },
+] as const;
 
 afterEach(async () => {
   await Promise.all(
@@ -440,6 +464,106 @@ test("runs the Calendar plugin through the manager process boundary after approv
   assert.equal(manager.getTransport(pluginId), undefined);
 });
 
+for (const applePlugin of appleEventKitPlugins) {
+  test(`runs ${applePlugin.name} through the manager and deterministic no-TCC native process`, async () => {
+    const root = await temporaryDirectory();
+    const logPath = path.join(root, `${applePlugin.resource}-native.log`);
+    await writeFile(logPath, "", "utf8");
+    const pluginDirectory = fileURLToPath(new URL(`../../${applePlugin.packageName}`, import.meta.url));
+    const requestedPermissions = { platform: [applePlugin.permission] };
+    const spawnCalls: Array<{ command: string; args: string[]; options: SpawnOptions }> = [];
+    const spawn: PluginSpawn = (command, args, options) => {
+      spawnCalls.push({ command, args: [...args], options });
+      return spawnChildProcess(command, [...args], options) as unknown as PluginProcess;
+    };
+    const manager = new PluginManager({
+      hostVersion: "1.0.0",
+      directories: [{ path: pluginDirectory, source: "builtin" }],
+      stateStore: new MemoryPluginStateStore(),
+      permissionBroker: new PermissionBroker(new MemoryPermissionApprovalStore()),
+      spawnProcess: spawn,
+    });
+    const previousBinary = process.env.QUEUEST_EVENTKIT_BINARY;
+    const previousLog = process.env.QUEUEST_EVENTKIT_MOCK_LOG;
+    process.env.QUEUEST_EVENTKIT_BINARY = eventKitNativeMockPath;
+    process.env.QUEUEST_EVENTKIT_MOCK_LOG = logPath;
+
+    try {
+      const discovered = await manager.discover();
+      const record = getRecord(discovered, applePlugin.id);
+      assert.equal(record.source, "builtin");
+      assert.equal(record.installed, true);
+      assert.equal(record.state, "disabled");
+      assert.equal(record.manifest?.name, applePlugin.name);
+      assert.equal(record.manifest?.entry.command, "node");
+      assert.deepEqual(record.manifest?.entry.args, [
+        "--experimental-strip-types",
+        applePlugin.entry,
+      ]);
+      assert.deepEqual(record.manifest?.capabilities, [applePlugin.capability]);
+      assert.deepEqual(record.manifest?.permissions, requestedPermissions);
+
+      const missing = await manager.inspectPluginPermissions(applePlugin.id);
+      assert.deepEqual(missing.requested, requestedPermissions);
+      assert.deepEqual(missing.granted, {});
+      assert.deepEqual(missing.missing, requestedPermissions);
+      await assert.rejects(manager.activatePlugin(applePlugin.id), (error: unknown) => {
+        return (
+          error instanceof PluginPermissionApprovalError &&
+          error.code === "PLUGIN_PERMISSION_APPROVAL_REQUIRED" &&
+          error.permissionState.missing.platform?.includes(applePlugin.permission) === true
+        );
+      });
+      assert.equal(spawnCalls.length, 0, "platform permission denial must happen before a child process starts");
+      assert.equal(manager.getTransport(applePlugin.id), undefined);
+
+      const approved = await manager.approvePluginPermissions(applePlugin.id, requestedPermissions);
+      assert.deepEqual(approved.granted, requestedPermissions);
+      assert.deepEqual(approved.missing, {});
+      assert.deepEqual(await manager.getApprovedPluginPermissions(applePlugin.id), requestedPermissions);
+
+      const transport = await manager.activatePlugin(applePlugin.id);
+      const child = transport.process as (PluginProcess & { pid?: number; exitCode?: number | null }) | undefined;
+      assert.equal(transport.status, "running");
+      assert.equal(typeof child?.pid, "number");
+      assert.equal(spawnCalls.length, 1);
+      assert.equal(spawnCalls[0].command, "node");
+      assert.deepEqual(spawnCalls[0].args, ["--experimental-strip-types", applePlugin.entry]);
+      assert.notEqual(spawnCalls[0].options.shell, true, "PluginManager must launch without a shell");
+      assert.deepEqual(await readEventKitMockLog(logPath), [
+        { resource: applePlugin.resource, method: "initialize", mode: "mock-no-tcc" },
+      ]);
+
+      assert.deepEqual(
+        await manager.requestPlugin<{ state: string; accountLabel: string }>(
+          applePlugin.id,
+          "health.check",
+          {},
+        ),
+        { state: "connected", accountLabel: applePlugin.healthAccountLabel },
+      );
+      assert.deepEqual(await readEventKitMockLog(logPath), [
+        { resource: applePlugin.resource, method: "initialize", mode: "mock-no-tcc" },
+        { resource: applePlugin.resource, method: "health.check", mode: "mock-no-tcc" },
+      ]);
+
+      await manager.shutdown();
+      assert.equal(transport.status, "stopped");
+      assert.equal(child?.exitCode, 0);
+      assert.equal(manager.getTransport(applePlugin.id), undefined);
+      assert.deepEqual(await readEventKitMockLog(logPath), [
+        { resource: applePlugin.resource, method: "initialize", mode: "mock-no-tcc" },
+        { resource: applePlugin.resource, method: "health.check", mode: "mock-no-tcc" },
+        { resource: applePlugin.resource, method: "shutdown", mode: "mock-no-tcc" },
+      ]);
+    } finally {
+      await manager.shutdown();
+      restoreEnvironmentVariable("QUEUEST_EVENTKIT_BINARY", previousBinary);
+      restoreEnvironmentVariable("QUEUEST_EVENTKIT_MOCK_LOG", previousLog);
+    }
+  });
+}
+
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "queuest-plugin-e2e-"));
   temporaryDirectories.push(directory);
@@ -479,5 +603,27 @@ async function fileExists(filePath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+interface EventKitMockLogEntry {
+  resource: string;
+  method: string;
+  mode: string;
+}
+
+async function readEventKitMockLog(filePath: string): Promise<EventKitMockLogEntry[]> {
+  const contents = await readFile(filePath, "utf8");
+  return contents
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as EventKitMockLogEntry);
+}
+
+function restoreEnvironmentVariable(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
   }
 }

@@ -364,10 +364,19 @@ export class EventKitNativeClient implements EventKitNativeClientLike {
     if (!this.terminationPromise) {
       return;
     }
-    await Promise.race([
-      this.terminationPromise,
-      new Promise<void>((resolvePromise) => setTimeout(resolvePromise, timeoutMs)),
-    ]);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.terminationPromise,
+        new Promise<void>((resolvePromise) => {
+          timeout = setTimeout(resolvePromise, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
   }
 }
 
