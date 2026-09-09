@@ -197,6 +197,7 @@ function removeKnownPermissionFields(value: Record<string, unknown>): Record<str
 
 function removeDirectPermissionFields(value: Record<string, unknown>): Record<string, unknown> {
   const next = { ...value };
+  delete next.platform;
   delete next.network;
   delete next.secrets;
   delete next.filesystem;
@@ -205,6 +206,7 @@ function removeDirectPermissionFields(value: Record<string, unknown>): Record<st
 
 function omitKnownPermissionFields(value: Record<string, unknown>): Record<string, unknown> {
   const next = { ...value };
+  delete next.platform;
   delete next.network;
   delete next.secrets;
   delete next.filesystem;

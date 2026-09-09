@@ -129,7 +129,7 @@ export class PluginManager {
     this.shutdownTimeoutMs = options.shutdownTimeoutMs;
     this.logger = options.logger;
     this.permissionBroker = options.permissionBroker ?? new PermissionBroker();
-    this.grantedPermissions = options.grantedPermissions ?? {};
+    this.grantedPermissions = clonePermissions(options.grantedPermissions ?? {});
     this.initializeOnActivate = options.initializeOnActivate ?? true;
   }
 
@@ -462,6 +462,9 @@ function cloneRecord(record: PluginRecord): PluginRecord {
               ...(record.manifest.entry.args ? { args: [...record.manifest.entry.args] } : {}),
             },
             capabilities: [...record.manifest.capabilities],
+            ...(record.manifest.permissions
+              ? { permissions: clonePermissions(record.manifest.permissions) }
+              : {}),
           },
         }
       : {}),
@@ -477,6 +480,7 @@ function readableError(error: unknown): string {
 
 function clonePermissions(permissions: PluginPermissions): PluginPermissions {
   return {
+    ...(permissions.platform ? { platform: [...permissions.platform] } : {}),
     ...(permissions.network ? { network: [...permissions.network] } : {}),
     ...(permissions.secrets ? { secrets: [...permissions.secrets] } : {}),
     ...(permissions.filesystem

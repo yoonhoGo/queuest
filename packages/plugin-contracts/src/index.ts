@@ -26,7 +26,11 @@ export interface PluginFilesystemPermission {
   access: "read" | "write";
 }
 
+/** A host/platform capability such as an OS TCC-protected resource. */
+export type PluginPlatformPermission = string;
+
 export interface PluginPermissions {
+  platform?: PluginPlatformPermission[];
   network?: string[];
   secrets?: string[];
   filesystem?: PluginFilesystemPermission[];
@@ -114,6 +118,8 @@ export type PluginMethod =
   | "initialize"
   | "health.check"
   | "connection.status"
+  | "tcc.status"
+  | "tcc.request-access"
   | "source.work-items.list"
   | "source.calendar-events.list"
   | "shutdown";
@@ -241,6 +247,7 @@ function parsePermissions(value: unknown): PluginPermissions | undefined {
     throw new Error("plugin permissions는 JSON 객체여야 합니다.");
   }
 
+  const platform = parseStringArray(value.platform, "permissions.platform");
   const network = parseStringArray(value.network, "permissions.network");
   const secrets = parseStringArray(value.secrets, "permissions.secrets");
   const filesystem = value.filesystem;
@@ -249,6 +256,7 @@ function parsePermissions(value: unknown): PluginPermissions | undefined {
   }
 
   return {
+    ...(platform ? { platform } : {}),
     ...(network ? { network } : {}),
     ...(secrets ? { secrets } : {}),
     ...(filesystem ? { filesystem: filesystem.map((permission) => ({ ...permission })) } : {}),
@@ -260,7 +268,7 @@ function parseStringArray(value: unknown, field: string): string[] | undefined {
     return undefined;
   }
 
-  if (!isStringArray(value) || !value.every((item) => item.length > 0)) {
+  if (!isStringArray(value) || !value.every((item) => item.trim().length > 0)) {
     throw new Error(`${field}는 비어 있지 않은 문자열 배열이어야 합니다.`);
   }
 
@@ -305,6 +313,8 @@ function isPluginMethod(value: unknown): value is PluginMethod {
     value === "initialize" ||
     value === "health.check" ||
     value === "connection.status" ||
+    value === "tcc.status" ||
+    value === "tcc.request-access" ||
     value === "source.work-items.list" ||
     value === "source.calendar-events.list" ||
     value === "shutdown"

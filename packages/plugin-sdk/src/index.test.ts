@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dispatchPluginRequest } from "./index.ts";
+import { dispatchPluginRequest, PluginProtocolError } from "./index.ts";
 
 test("dispatches a supported capability to the plugin handler", async () => {
   const response = await dispatchPluginRequest(
@@ -66,6 +66,34 @@ test("rejects results that cannot cross the JSON protocol", async () => {
     error: {
       code: "INVALID_RESULT",
       message: "플러그인 결과가 JSON 값이 아닙니다.",
+    },
+  });
+});
+
+test("preserves explicitly safe typed protocol errors", async () => {
+  const response = await dispatchPluginRequest(
+    {
+      protocolVersion: 1,
+      id: "request-4",
+      method: "tcc.status",
+      params: {},
+    },
+    {
+      tccStatus: () => {
+        throw new PluginProtocolError("TCC_DENIED", "Apple Calendar 접근이 거부되었습니다.", {
+          resource: "calendar",
+        });
+      },
+    },
+  );
+
+  assert.deepEqual(response, {
+    protocolVersion: 1,
+    id: "request-4",
+    error: {
+      code: "TCC_DENIED",
+      message: "Apple Calendar 접근이 거부되었습니다.",
+      details: { resource: "calendar" },
     },
   });
 });

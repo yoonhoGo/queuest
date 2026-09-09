@@ -4,6 +4,7 @@ dist/
 dist-ssr/
 target/
 *.local
+packages/plugin-eventkit/native/.build/
 
 # Logs
 *.log

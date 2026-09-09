@@ -649,6 +649,7 @@ function responseHeader(response: Response, name: string): string | undefined {
 
 function clonePermissions(permissions: PluginPermissions): PluginPermissions {
   return {
+    ...(permissions.platform ? { platform: [...permissions.platform] } : {}),
     ...(permissions.network ? { network: [...permissions.network] } : {}),
     ...(permissions.secrets ? { secrets: [...permissions.secrets] } : {}),
     ...(permissions.filesystem

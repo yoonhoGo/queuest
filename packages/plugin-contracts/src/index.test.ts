@@ -20,6 +20,7 @@ const validManifest: PluginManifest = {
   },
   capabilities: ["source.calendar-events"],
   permissions: {
+    platform: ["macos.eventkit.calendar"],
     network: ["calendar.example.com"],
     secrets: ["calendar"],
   },
@@ -83,5 +84,28 @@ test("rejects protocol requests from an unknown version", () => {
         params: {},
       }),
     /지원하지 않는 plugin protocolVersion/,
+  );
+});
+
+test("parses platform permissions and TCC protocol methods", () => {
+  assert.deepEqual(
+    parsePluginManifest({
+      ...validManifest,
+      permissions: { platform: ["macos.eventkit.calendar"] },
+    }).permissions,
+    { platform: ["macos.eventkit.calendar"] },
+  );
+  assert.deepEqual(
+    parsePluginRequest({
+      protocolVersion: 1,
+      id: "request-tcc",
+      method: "tcc.status",
+      params: {},
+    }).method,
+    "tcc.status",
+  );
+  assert.throws(
+    () => parsePluginManifest({ ...validManifest, permissions: { platform: [""] } }),
+    /permissions\.platform/,
   );
 });

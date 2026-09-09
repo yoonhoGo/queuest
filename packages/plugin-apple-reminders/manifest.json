@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "com.queuest.apple-reminders",
+  "name": "Apple Reminders",
+  "version": "0.1.0",
+  "hostApi": "^1.0.0",
+  "entry": {
+    "type": "process",
+    "command": "node",
+    "args": ["--experimental-strip-types", "bin/queuest-apple-reminders.mjs"]
+  },
+  "capabilities": ["source.work-items"],
+  "permissions": {
+    "platform": ["macos.eventkit.reminders"]
+  },
+  "configSchema": {}
+}

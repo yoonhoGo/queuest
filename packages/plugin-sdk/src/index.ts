@@ -14,6 +14,8 @@ export interface PluginHandlers {
   initialize?: (params: JsonObject) => unknown | Promise<unknown>;
   healthCheck?: (params: JsonObject) => unknown | Promise<unknown>;
   connectionStatus?: (params: JsonObject) => unknown | Promise<unknown>;
+  tccStatus?: (params: JsonObject) => unknown | Promise<unknown>;
+  requestTccAccess?: (params: JsonObject) => unknown | Promise<unknown>;
   listWorkItems?: (params: JsonObject) => unknown | Promise<unknown>;
   listCalendarEvents?: (params: JsonObject) => unknown | Promise<unknown>;
   shutdown?: (params: JsonObject) => unknown | Promise<unknown>;
@@ -31,6 +33,9 @@ export async function dispatchPluginRequest(
 
     return successResponse(request.id, result);
   } catch (error: unknown) {
+    if (error instanceof PluginProtocolError) {
+      return errorResponse(request.id, error.code, error.message, error.details);
+    }
     return errorResponse(request.id, "PLUGIN_ERROR", readableError(error));
   }
 }
@@ -74,6 +79,10 @@ async function callHandler(request: PluginRequest, handlers: PluginHandlers): Pr
         : { state: "connected" };
     case "connection.status":
       return requireHandler(handlers.connectionStatus, "connection.status")(request.params);
+    case "tcc.status":
+      return requireHandler(handlers.tccStatus, "tcc.status")(request.params);
+    case "tcc.request-access":
+      return requireHandler(handlers.requestTccAccess, "tcc.request-access")(request.params);
     case "source.work-items.list":
       return requireHandler(handlers.listWorkItems, "source.work-items.list")(request.params);
     case "source.calendar-events.list":
@@ -104,12 +113,38 @@ function successResponse(id: string, result: import("@queuest/plugin-contracts")
   };
 }
 
-function errorResponse(id: string, code: string, message: string): PluginErrorResponse {
+function errorResponse(
+  id: string,
+  code: string,
+  message: string,
+  details?: import("@queuest/plugin-contracts").JsonValue,
+): PluginErrorResponse {
   return {
     protocolVersion: PLUGIN_PROTOCOL_VERSION,
     id,
-    error: { code, message },
+    error: {
+      code,
+      message,
+      ...(details === undefined ? {} : { details }),
+    },
   };
+}
+
+/** An explicitly sanitized error allowed to cross the plugin protocol. */
+export class PluginProtocolError extends Error {
+  public readonly code: string;
+  public readonly details?: import("@queuest/plugin-contracts").JsonValue;
+
+  public constructor(
+    code: string,
+    message: string,
+    details?: import("@queuest/plugin-contracts").JsonValue,
+  ) {
+    super(message);
+    this.code = code;
+    this.details = details;
+    this.name = "PluginProtocolError";
+  }
 }
 
 function readableError(error: unknown): string {

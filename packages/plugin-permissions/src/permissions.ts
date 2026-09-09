@@ -35,11 +35,13 @@ export function normalizePermissions(input: PermissionInput = {}): PluginPermiss
   }
 
   const permissions = input as PluginPermissions;
+  const platform = normalizeStringList(permissions.platform, "platform", normalizePlatformPermission);
   const network = normalizeStringList(permissions.network, "network", normalizeNetworkDomain);
   const secrets = normalizeStringList(permissions.secrets, "secrets", normalizeSecretName);
   const filesystem = normalizeFilesystem(permissions.filesystem);
 
   return {
+    ...(platform.length > 0 ? { platform } : {}),
     ...(network.length > 0 ? { network } : {}),
     ...(secrets.length > 0 ? { secrets } : {}),
     ...(filesystem.length > 0 ? { filesystem } : {}),
@@ -109,8 +111,8 @@ export function isEmptyPermissions(input: PermissionInput): boolean {
 
 /** Returns whether a requested permission is covered by an approved grant. */
 export function permissionIsCovered(
-  requested: PluginPermissions,
-  granted: PluginPermissions,
+  requested: PermissionInput,
+  granted: PermissionInput,
 ): boolean {
   return isEmptyPermissions(subtractPermissions(requested, granted));
 }
@@ -136,6 +138,7 @@ export function mergePermissions(
   const left = normalizePermissions(first);
   const right = normalizePermissions(second);
   return normalizePermissions({
+    platform: [...(left.platform ?? []), ...(right.platform ?? [])],
     network: [...(left.network ?? []), ...(right.network ?? [])],
     secrets: [...(left.secrets ?? []), ...(right.secrets ?? [])],
     filesystem: [...(left.filesystem ?? []), ...(right.filesystem ?? [])],
@@ -150,6 +153,9 @@ export function subtractGrantedPermissions(
   const normalizedGranted = normalizePermissions(granted);
   const normalizedRevoked = normalizePermissions(revoked);
 
+  const platform = (normalizedGranted.platform ?? []).filter(
+    (entry) => !(normalizedRevoked.platform ?? []).includes(entry),
+  );
   const network = (normalizedGranted.network ?? []).filter(
     (entry) => !(normalizedRevoked.network ?? []).some((target) => domainCovers(target, entry)),
   );
@@ -163,43 +169,87 @@ export function subtractGrantedPermissions(
       ),
   );
 
-  return normalizePermissions({ network, secrets, filesystem });
+  return normalizePermissions({ platform, network, secrets, filesystem });
 }
 
-function intersectPermissions(
-  requested: PluginPermissions,
-  granted: PluginPermissions,
+/** Returns the requested permissions covered by the grant. */
+export function intersectPermissions(
+  requested: PermissionInput,
+  granted: PermissionInput,
+): PluginPermissions;
+export function intersectPermissions(input: {
+  requested: PermissionInput;
+  granted: PermissionInput;
+}): PluginPermissions;
+export function intersectPermissions(
+  requestedOrInput: PermissionInput | { requested: PermissionInput; granted: PermissionInput },
+  maybeGranted?: PermissionInput,
 ): PluginPermissions {
-  const network = (requested.network ?? []).filter((entry) =>
-    (granted.network ?? []).some((grant) => domainCovers(grant, entry)),
+  const requested = isPermissionPair(requestedOrInput)
+    ? requestedOrInput.requested
+    : requestedOrInput;
+  const granted = isPermissionPair(requestedOrInput)
+    ? requestedOrInput.granted
+    : maybeGranted;
+  const normalizedRequested = normalizePermissions(requested);
+  const normalizedGranted = normalizePermissions(granted);
+  const platform = (normalizedRequested.platform ?? []).filter((entry) =>
+    (normalizedGranted.platform ?? []).includes(entry),
   );
-  const secrets = (requested.secrets ?? []).filter((entry) =>
-    (granted.secrets ?? []).includes(entry),
+  const network = (normalizedRequested.network ?? []).filter((entry) =>
+    (normalizedGranted.network ?? []).some((grant) => domainCovers(grant, entry)),
   );
-  const filesystem = (requested.filesystem ?? []).filter((entry) =>
-    (granted.filesystem ?? []).some((grant) => filesystemPermissionCovers(grant, entry)),
+  const secrets = (normalizedRequested.secrets ?? []).filter((entry) =>
+    (normalizedGranted.secrets ?? []).includes(entry),
+  );
+  const filesystem = (normalizedRequested.filesystem ?? []).filter((entry) =>
+    (normalizedGranted.filesystem ?? []).some((grant) => filesystemPermissionCovers(grant, entry)),
   );
 
-  return normalizePermissions({ network, secrets, filesystem });
+  return normalizePermissions({ platform, network, secrets, filesystem });
 }
 
-function subtractPermissions(
-  requested: PluginPermissions,
-  granted: PluginPermissions,
+export const intersectPluginPermissions = intersectPermissions;
+
+/** Returns permissions requested but not covered by the grant. */
+export function subtractPermissions(
+  requested: PermissionInput,
+  granted: PermissionInput,
+): PluginPermissions;
+export function subtractPermissions(input: {
+  requested: PermissionInput;
+  granted: PermissionInput;
+}): PluginPermissions;
+export function subtractPermissions(
+  requestedOrInput: PermissionInput | { requested: PermissionInput; granted: PermissionInput },
+  maybeGranted?: PermissionInput,
 ): PluginPermissions {
-  const network = (requested.network ?? []).filter(
-    (entry) => !(granted.network ?? []).some((grant) => domainCovers(grant, entry)),
+  const requested = isPermissionPair(requestedOrInput)
+    ? requestedOrInput.requested
+    : requestedOrInput;
+  const granted = isPermissionPair(requestedOrInput)
+    ? requestedOrInput.granted
+    : maybeGranted;
+  const normalizedRequested = normalizePermissions(requested);
+  const normalizedGranted = normalizePermissions(granted);
+  const platform = (normalizedRequested.platform ?? []).filter(
+    (entry) => !(normalizedGranted.platform ?? []).includes(entry),
   );
-  const secrets = (requested.secrets ?? []).filter(
-    (entry) => !(granted.secrets ?? []).includes(entry),
+  const network = (normalizedRequested.network ?? []).filter(
+    (entry) => !(normalizedGranted.network ?? []).some((grant) => domainCovers(grant, entry)),
   );
-  const filesystem = (requested.filesystem ?? []).filter(
+  const secrets = (normalizedRequested.secrets ?? []).filter(
+    (entry) => !(normalizedGranted.secrets ?? []).includes(entry),
+  );
+  const filesystem = (normalizedRequested.filesystem ?? []).filter(
     (entry) =>
-      !(granted.filesystem ?? []).some((grant) => filesystemPermissionCovers(grant, entry)),
+      !(normalizedGranted.filesystem ?? []).some((grant) => filesystemPermissionCovers(grant, entry)),
   );
 
-  return normalizePermissions({ network, secrets, filesystem });
+  return normalizePermissions({ platform, network, secrets, filesystem });
 }
+
+export const subtractPluginPermissions = subtractPermissions;
 
 function normalizeStringList(
   value: string[] | undefined,
@@ -227,6 +277,14 @@ function normalizeNetworkDomain(value: string): string {
     throw new TypeError("network permission domains must not be empty");
   }
   return normalized.endsWith(".") ? normalized.slice(0, -1) : normalized;
+}
+
+function normalizePlatformPermission(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length === 0) {
+    throw new TypeError("platform permission names must not be empty");
+  }
+  return normalized;
 }
 
 function normalizeSecretName(value: string): string {
@@ -311,6 +369,12 @@ function filesystemPathCovers(grantPath: string, requestedPath: string): boolean
 }
 
 function isDiffInput(
+  value: PermissionInput | { requested: PermissionInput; granted: PermissionInput },
+): value is { requested: PermissionInput; granted: PermissionInput } {
+  return isRecord(value) && "requested" in value && "granted" in value;
+}
+
+function isPermissionPair(
   value: PermissionInput | { requested: PermissionInput; granted: PermissionInput },
 ): value is { requested: PermissionInput; granted: PermissionInput } {
   return isRecord(value) && "requested" in value && "granted" in value;

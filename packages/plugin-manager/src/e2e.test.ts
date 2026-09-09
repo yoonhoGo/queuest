@@ -154,6 +154,7 @@ test("requires approval before running a permissioned real mock plugin", async (
   const pluginDirectory = path.join(builtinRoot, "permissioned-mock");
   const pluginId = "com.queuest.mock.permissioned";
   const requestedPermissions = {
+    platform: ["macos.eventkit.calendar"],
     network: ["api.example.com"],
     secrets: ["github"],
   };
@@ -174,14 +175,24 @@ test("requires approval before running a permissioned real mock plugin", async (
   });
 
   await manager.discover();
+  const exposed = manager.getPlugin(pluginId);
+  assert.ok(exposed?.manifest?.permissions?.platform);
+  exposed.manifest.permissions.platform[0] = "mutated.platform";
+  assert.deepEqual(manager.getPlugin(pluginId)?.manifest?.permissions?.platform, [
+    "macos.eventkit.calendar",
+  ]);
   await assert.rejects(manager.activatePlugin(pluginId), (error: unknown) => {
     return error instanceof PluginPermissionApprovalError && error.code === "PLUGIN_PERMISSION_APPROVAL_REQUIRED";
   });
   assert.equal(manager.getTransport(pluginId), undefined);
   assert.equal(warnings.some((message) => message.includes("mock-plugin:initialize")), false);
 
-  await manager.approvePluginPermissions(pluginId, { network: ["api.example.com"] });
+  await manager.approvePluginPermissions(pluginId, {
+    platform: ["macos.eventkit.calendar"],
+    network: ["api.example.com"],
+  });
   assert.deepEqual(await manager.getApprovedPluginPermissions(pluginId), {
+    platform: ["macos.eventkit.calendar"],
     network: ["api.example.com"],
   });
   await assert.rejects(manager.activatePlugin(pluginId), PluginPermissionApprovalError);

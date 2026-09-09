@@ -13,7 +13,10 @@ import {
   PermissionBrokerError,
   createKeychainCredentialIdentifiers,
   diffPermissions,
+  intersectPermissions,
+  mergePermissions,
   normalizePermissions,
+  subtractPermissions,
 } from "./index.ts";
 
 const temporaryDirectories: string[] = [];
@@ -26,6 +29,7 @@ test.afterEach(async () => {
 
 test("normalizes permission entries and computes least-privilege coverage", () => {
   const requested = normalizePermissions({
+    platform: [" macOS.EventKit.Calendar ", "macos.eventkit.calendar"],
     network: [" API.Example.com. ", "api.example.com"],
     secrets: [" github ", "github"],
     filesystem: [
@@ -35,6 +39,7 @@ test("normalizes permission entries and computes least-privilege coverage", () =
     ],
   });
   assert.deepEqual(requested, {
+    platform: ["macos.eventkit.calendar"],
     network: ["api.example.com"],
     secrets: ["github"],
     filesystem: [
@@ -44,11 +49,13 @@ test("normalizes permission entries and computes least-privilege coverage", () =
   });
 
   const state = diffPermissions(requested, {
+    platform: ["macos.eventkit.calendar", "macos.eventkit.reminders"],
     network: ["example.com"],
     secrets: ["other"],
     filesystem: [{ path: "/tmp", access: "read" }],
   });
   assert.deepEqual(state.granted, {
+    platform: ["macos.eventkit.calendar"],
     network: ["api.example.com"],
     filesystem: [{ path: "/tmp/other", access: "read" }],
   });
@@ -56,11 +63,25 @@ test("normalizes permission entries and computes least-privilege coverage", () =
     secrets: ["github"],
     filesystem: [{ path: "/tmp/project", access: "write" }],
   });
+
+  assert.deepEqual(intersectPermissions(
+    { platform: ["macos.eventkit.calendar", "macos.eventkit.reminders"] },
+    { platform: ["macos.eventkit.calendar"] },
+  ), { platform: ["macos.eventkit.calendar"] });
+  assert.deepEqual(subtractPermissions(
+    { platform: ["macos.eventkit.calendar", "macos.eventkit.reminders"] },
+    { platform: ["macos.eventkit.calendar"] },
+  ), { platform: ["macos.eventkit.reminders"] });
+  assert.deepEqual(mergePermissions(
+    { platform: ["macos.eventkit.calendar"] },
+    { platform: ["macos.eventkit.reminders"] },
+  ), { platform: ["macos.eventkit.calendar", "macos.eventkit.reminders"] });
 });
 
 test("approves only a selected subset and never auto-grants inspection", async () => {
   const broker = new PermissionBroker(new MemoryPermissionApprovalStore());
   const requested = {
+    platform: ["macos.eventkit.calendar"],
     network: ["api.example.com", "calendar.example.com"],
     secrets: ["github"],
   };
@@ -68,14 +89,19 @@ test("approves only a selected subset and never auto-grants inspection", async (
   const before = await broker.inspect("com.example.calendar", requested);
   assert.deepEqual(before.granted, {});
   assert.deepEqual(before.missing, {
+    platform: ["macos.eventkit.calendar"],
     network: ["api.example.com", "calendar.example.com"],
     secrets: ["github"],
   });
 
   const after = await broker.approve("com.example.calendar", {
+    platform: ["macos.eventkit.calendar"],
     network: ["api.example.com"],
   });
-  assert.deepEqual(after.granted, { network: ["api.example.com"] });
+  assert.deepEqual(after.granted, {
+    platform: ["macos.eventkit.calendar"],
+    network: ["api.example.com"],
+  });
   assert.deepEqual(after.missing, {
     network: ["calendar.example.com"],
     secrets: ["github"],
