@@ -9,6 +9,7 @@ import type {
   Character,
   Loadout,
   Milestone,
+  PluginConnection,
   Project,
   Task,
   TaskComment,
@@ -99,6 +100,7 @@ test("SQLite repository survives reload and cascades child records", async () =>
       assignee: "human",
       skills: ["typescript"],
       blocked: false,
+      sourceUrl: "https://github.com/example/queuest/issues/1",
       comments: [comment],
     };
     const character: Character = {
@@ -109,6 +111,14 @@ test("SQLite repository survives reload and cascades child records", async () =>
     const loadout: Loadout = {
       projectId: project.id,
       agentTool: "claude",
+    };
+    const pluginConnection: PluginConnection = {
+      pluginId: "com.queuest.github",
+      connectionId: "github-personal",
+      label: "개인 GitHub",
+      config: { repository: "example/queuest" },
+      credentialStored: true,
+      updatedAt: "2026-09-09T00:00:00.000Z",
     };
     const updatedComment: TaskComment = {
       ...comment,
@@ -133,6 +143,12 @@ test("SQLite repository survives reload and cascades child records", async () =>
     await repository.saveTaskComment(updatedComment);
     await repository.saveCharacter(character);
     await repository.saveLoadout(loadout);
+    await repository.savePluginConnection(pluginConnection);
+    assert.deepEqual(await repository.listPluginConnections(), [pluginConnection]);
+    const pluginConnectionRows = await database.select<{ config: string }[]>(
+      "SELECT config FROM plugin_connections WHERE plugin_id = 'com.queuest.github'",
+    );
+    assert.deepEqual(pluginConnectionRows, [{ config: '{"repository":"example/queuest"}' }]);
 
     const reloadedDatabase = new SqliteCliDatabase(databasePath);
     const reloadedRepository = new SqliteTaskRepository(
@@ -145,16 +161,52 @@ test("SQLite repository survives reload and cascades child records", async () =>
         project,
         milestones: [milestone],
         tasks: [persistedTask],
-        character,
         loadout,
+      },
+    ]);
+    assert.deepEqual(await reloadedRepository.listProjectTodos(), [
+      {
+        workspace: renamedWorkspace,
+        project,
+        milestone,
+        task: {
+          id: persistedTask.id,
+          milestoneId: persistedTask.milestoneId,
+          title: persistedTask.title,
+          body: persistedTask.body,
+          status: persistedTask.status,
+          assignee: persistedTask.assignee,
+          skills: persistedTask.skills,
+          blocked: persistedTask.blocked,
+          sourceUrl: persistedTask.sourceUrl,
+        },
       },
     ]);
     assert.deepEqual(await reloadedRepository.listTaskComments(savedTask.id), [updatedComment]);
     assert.deepEqual(await reloadedRepository.getCharacter(), character);
     assert.deepEqual(await reloadedRepository.getLoadout(project.id), loadout);
+    assert.deepEqual(await reloadedRepository.listPluginConnections(), [pluginConnection]);
     await reloadedRepository.deleteTaskComment(updatedComment.id);
     assert.deepEqual(await reloadedRepository.listTaskComments(savedTask.id), []);
     await reloadedRepository.saveTaskComment(updatedComment);
+
+    await reloadedRepository.savePluginConnection({
+      ...pluginConnection,
+      credentialStored: false,
+      config: { repository: "example/queuest-updated" },
+      updatedAt: "2026-09-09T01:00:00.000Z",
+    });
+    assert.deepEqual(await reloadedRepository.listPluginConnections(), [{
+      ...pluginConnection,
+      credentialStored: false,
+      config: { repository: "example/queuest-updated" },
+      updatedAt: "2026-09-09T01:00:00.000Z",
+    }]);
+    await reloadedRepository.deletePluginConnection(
+      pluginConnection.pluginId,
+      pluginConnection.connectionId,
+    );
+    assert.deepEqual(await reloadedRepository.listPluginConnections(), []);
 
     await reloadedRepository.deleteMilestone(milestone.id);
     assert.deepEqual(await reloadedRepository.listProjectGraphs(), [
@@ -163,7 +215,6 @@ test("SQLite repository survives reload and cascades child records", async () =>
         project,
         milestones: [],
         tasks: [],
-        character,
         loadout,
       },
     ]);
@@ -215,6 +266,67 @@ test("SQLite repository survives reload and cascades child records", async () =>
       "SELECT COUNT(*) AS count FROM characters",
     );
     assert.equal(characters[0]?.count, 1);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("adds source URL support when opening a legacy tasks table", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "queuest-sqlite-migration-test-"));
+  const databasePath = join(directory, "queuest.db");
+
+  try {
+    const database = new SqliteCliDatabase(databasePath);
+    await database.execute(`
+      CREATE TABLE tasks (
+        id TEXT PRIMARY KEY,
+        milestone_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        assignee TEXT NOT NULL,
+        skills TEXT NOT NULL DEFAULT '[]',
+        blocked INTEGER NOT NULL DEFAULT 0,
+        external_ref TEXT
+      )
+    `);
+
+    const repository = new SqliteTaskRepository(database as unknown as Database);
+    await repository.initialize();
+    const columns = await database.select<Array<{ name: string }>>(
+      "PRAGMA table_info(tasks)",
+    );
+    assert.equal(columns.some((column) => column.name === "source_url"), true);
+
+    const workspace: Workspace = { id: "legacy-workspace", name: "기존 작업 공간" };
+    const project: Project = {
+      id: "legacy-project",
+      workspaceId: workspace.id,
+      name: "기존 프로젝트",
+      skills: [],
+    };
+    const milestone: Milestone = {
+      id: "legacy-milestone",
+      projectId: project.id,
+      name: "기존 스테이지",
+      order: 1,
+    };
+    const task: Task = {
+      id: "legacy-task",
+      milestoneId: milestone.id,
+      title: "원본 링크가 있는 기존 태스크",
+      body: "",
+      status: "todo",
+      assignee: "human",
+      skills: [],
+      blocked: false,
+      sourceUrl: "https://github.com/example/queuest/issues/9",
+    };
+    await repository.saveWorkspace(workspace);
+    await repository.saveProject(project);
+    await repository.saveMilestone(milestone);
+    await repository.saveTask(task);
+    assert.equal((await repository.listProjectGraphs())[0]?.tasks[0]?.sourceUrl, task.sourceUrl);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

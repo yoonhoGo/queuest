@@ -4,15 +4,16 @@
 
 개인 프로젝트를 원정(프로젝트) → 스테이지(마일스톤) → 퀘스트(태스크)로 관리하는 macOS 메뉴바 앱입니다.
 
-현재 레포는 `Tauri 2 + React + TypeScript + SQLite` 기반의 로컬 MVP입니다. 앱은 SQLite 인박스를 먼저 열고, 사용자가 프로젝트를 선택하거나 만들 때만 워크스페이스·프로젝트·마일스톤·태스크 그래프를 불러옵니다. 워크스페이스와 프로젝트·마일스톤·태스크 CRUD, 보드 상태 이동은 로컬 SQLite에 즉시 저장되고, 태스크 댓글·캐릭터·프로젝트 장비 설정도 재실행 시 복원할 수 있는 저장 경계를 갖습니다. 메뉴바 팝오버는 포커스와 핀 상태를 반영하며 도구 상태를 확인합니다. 외부 연동은 `@queuest/plugin-contracts`의 버전 있는 프로토콜과 [플러그인 아키텍처](./docs/plugin-architecture.md)를 기준으로 확장합니다.
+현재 레포는 `Tauri 2 + React + TypeScript + SQLite` 기반의 로컬 MVP입니다. 앱은 SQLite 인박스와 프로젝트 할 일 목록을 먼저 열고, 프로젝트 보드나 전역 캐릭터 탭에서 필요할 때만 전체 워크스페이스·프로젝트·마일스톤·태스크 그래프를 불러옵니다. 워크스페이스와 프로젝트·마일스톤·태스크 CRUD, 보드 상태 이동은 로컬 SQLite에 즉시 저장되고, 태스크 댓글·전역 캐릭터·프로젝트 장비 설정도 재실행 시 복원할 수 있는 저장 경계를 갖습니다. 메뉴바 팝오버는 포커스와 핀 상태를 반영하며 도구 상태를 확인합니다. 외부 연동은 `@queuest/plugin-contracts`의 버전 있는 프로토콜과 [플러그인 아키텍처](./docs/plugin-architecture.md)를 기준으로 확장합니다.
 
 ## 미리보기
 
 macOS 메뉴바에서 Queuest 아이콘을 클릭하면 아이콘 바로 아래에 팝오버가 열립니다. 우클릭 메뉴로 열어도 같은 위치를 사용하며, 화면 좌우 경계를 넘지 않도록 배치합니다.
 
 - 상단의 **할 일 / 프로젝트 / 캐릭터 / 플러그인** 메뉴는 스크롤해도 유지됩니다.
-- 캐릭터 이름과 직업은 프로젝트 없이 편집할 수 있습니다. 프로젝트를 연 상태의 캐릭터 화면에서는 해당 프로젝트의 경험치·스킬·장비도 확인합니다.
-- 플러그인 화면에서 로컬 도구의 설치·인증 상태를 다시 확인할 수 있습니다. 서비스 커넥터 목록도 표시하지만, 앱 내 연결·권한 설정은 아직 준비 중입니다.
+- 캐릭터 이름과 직업은 **캐릭터** 탭에서 전역으로 편집합니다. 경험치·레벨·스킬은 모든 프로젝트의 완료 기록을 합산하고, 프로젝트별 장비 설정은 프로젝트 설정에 남습니다.
+- **할 일** 탭에서 개인 인박스와 모든 프로젝트의 퀘스트를 함께 확인할 수 있습니다. 프로젝트 퀘스트에서 프로젝트 보드와 외부 원본 링크로 바로 이동합니다.
+- 플러그인 화면에서 로컬 도구의 설치·인증 상태를 다시 확인할 수 있습니다. GitHub는 프로젝트의 작업 폴더와 `gh` 인증을 사용해 이슈를 선택한 스테이지의 퀘스트로 가져올 수 있고, Jira·Calendar·EventKit은 연결 설정 UI를 준비 중입니다.
 - 420px 창에서는 퀘스트 상태 보드를 세로로 표시합니다. 고정 버튼을 누르면 다른 앱으로 이동해도 창이 유지됩니다.
 
 아래 이미지는 초기 디자인 미리보기로, 현재 화면 전환 메뉴와는 차이가 있습니다.
@@ -37,7 +38,7 @@ packages/plugin-apple-calendar Apple Calendar EventKit 읽기 전용 process con
 packages/plugin-apple-reminders Apple Reminders EventKit 읽기 전용 process connector
 packages/adapter-sqlite   Tauri SQL 기반 로컬 SQLite 어댑터
 packages/adapter-claude   claude -p 실행 어댑터
-packages/adapter-github   기존 GitHub 경계 어댑터 (UI 흐름 전환 예정)
+packages/adapter-github   GitHub 이슈 조회·Task 변환·원본 링크 어댑터
 ```
 
 ## 시작
@@ -68,9 +69,16 @@ npm run check
 - XP·레벨·스킬은 저장하지 않고 태스크와 마일스톤에서 계산합니다.
 - AI 실행 결과는 `review`로 돌아오며 `done` 처리는 사람의 몫입니다.
 - 외부 연동은 플러그인에서 앱으로 가져오는 단방향 흐름부터 둡니다.
+- 플러그인 탭에서 GitHub·Jira·Google Calendar·Apple EventKit 연결 프로필을 저장하고
+  다시 편집·삭제할 수 있습니다. 연결 메타데이터와 캘린더 ID는 SQLite에, API token과
+  access token은 `com.yoonhogo.queuest.credentials.plugin.<pluginId>.<connectionId>`
+  규칙의 macOS Keychain에 저장하며, 토큰은 웹 화면이나 SQLite로 되돌려 읽지 않습니다.
+  Google Calendar의 OAuth 동의·token refresh와 Apple EventKit TCC 요청 화면은 후속 범위입니다.
 - GitHub connector는 `com.queuest.github` plugin namespace와 `connectionId`를 조합한
-  Credential Store 항목을 읽고, GitHub REST GET만 수행합니다. UI에서 외부 이슈를 로컬
-  Task로 가져오거나 GitHub에 쓰는 흐름은 아직 연결하지 않습니다.
+  Credential Store 항목을 읽고, GitHub REST GET만 수행합니다. 앱에서는 프로젝트의
+  `repoPath`와 `gh` 인증을 통해 이슈를 읽어 선택한 스테이지의 로컬 Task로 저장하며,
+  `externalRef`로 중복을 막고 원본 URL을 보존합니다. GitHub에 쓰는 흐름은 읽기 전용 범위
+  밖입니다.
 - Jira Cloud connector는 `com.queuest.jira` plugin namespace와 `connectionId`로 Credential
   Store 항목을 읽고, 다음 JSON credential을 사용합니다. `siteUrl`은 `baseUrl`로 대체할 수
   있으며 둘 다 있으면 같은 값이어야 합니다.
@@ -90,7 +98,8 @@ npm run check
   `ExternalWorkItem`으로 매핑하며, ADF 또는 문자열 description·labels·updatedAt·status
   category·browse URL을 보존합니다. `health.check`는 초기화·권한만 확인하고 credential/API를
   읽지 않으며, credential/auth/not-found/rate-limit/HTTP/malformed/network 실패는 token을
-  노출하지 않는 typed error와 connection state로 전달합니다. UI import와 local Task 저장,
+  노출하지 않는 typed error와 connection state로 전달합니다. 연결 설정은 플러그인 탭에서
+  저장하지만, Jira UI import와 local Task 저장,
   `externalRef` deduplication, provider write, OAuth/3LO, self-hosted Jira/Data Center 지원은
   아직 연결하지 않습니다.
 - Google Calendar connector는 `com.queuest.calendar` plugin namespace와 `connectionId`를
@@ -113,8 +122,9 @@ npm run check
   not-found/rate-limit/HTTP/malformed/network 실패는 token을 노출하지 않는 typed error와
   connection state로 전달합니다. OAuth 동의·authorization code 교환·token refresh와
   `accessToken`을 Credential Store에 넣는 provisioning은 Host/UI 경계이며 이 read-only
-  connector에 포함하지 않습니다. 일정 쓰기, UI import, CalendarEvent 저장과 Task 변환도
-  아직 연결하지 않습니다.
+  connector에 포함하지 않습니다. 연결 설정은 플러그인 탭에서 access token을 Keychain에
+  보관할 수 있지만, 일정 쓰기, UI import, CalendarEvent 저장과 Task 변환은 아직 연결하지
+  않습니다.
 - Apple EventKit connector는 `com.queuest.apple-calendar`와
   `com.queuest.apple-reminders` 두 개의 process plugin으로 제공됩니다. 각각
   `source.calendar-events` 또는 `source.work-items` capability와
@@ -143,8 +153,9 @@ npm run check
   npm run tauri -- build
   ```
 
-  현재 EventKit plugin은 로컬 EventKit 데이터의 목록 조회와 연결/TCC 상태 확인만
-  구현합니다. OAuth 동의·authorization code·refresh token·Keychain provisioning은
-  필요하지 않으며, 일정/미리알림 UI, CalendarEvent·Task 저장과 중복 제거, 외부 데이터
+  현재 EventKit plugin은 로컬 EventKit 데이터의 목록 조회와 연결/TCC 상태 확인을
+  구현합니다. 플러그인 탭에서 비밀 없는 연결 ID와 Calendar ID를 저장할 수 있으며,
+  OAuth 동의·authorization code·refresh token·Keychain provisioning은 필요하지 않습니다.
+  TCC 요청 안내, 일정/미리알림 UI, CalendarEvent·Task 저장과 중복 제거, 외부 데이터
   생성·수정·삭제(write)는 아직 Host/UI 범위에 연결하지 않았습니다.
 - 커밋·푸시·클라우드 동기화·팀 공유는 이 초기화 범위에 포함하지 않습니다.

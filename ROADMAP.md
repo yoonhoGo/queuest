@@ -17,7 +17,8 @@ Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일�
 - [x] 화면에서 프로젝트·마일스톤·태스크를 생성·수정·삭제
 - [x] 외부 플러그인 manifest·프로토콜·정규화 타입 계약
 - [x] Apple EventKit Calendar·Reminders 로컬 read-only plugin과 native process E2E
-- [ ] AI·GitHub 어댑터를 실제 UI 흐름에 연결
+- [ ] AI 어댑터를 실제 UI 흐름에 연결
+- [x] GitHub Issues 조회·선택·로컬 Task 저장 UI 흐름
 
 ## P0 — 로컬 MVP
 
@@ -73,7 +74,7 @@ Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일�
 
 - [x] 캐릭터 이름·직업 선택
 - [x] 개발자·기획자·디자이너 도트 스프라이트 연결
-- [x] 완료 태스크·마일스톤·프로젝트 기반 XP·레벨 표시
+- [x] 전체 프로젝트의 완료 태스크·마일스톤 기반 XP·레벨 표시
 - [x] 스킬 태그별 레벨과 직업별 강조 표시
 - [x] XP 계산식과 “다음 레벨까지” 표시 일치 검증
 - [x] 기존 로컬 도구 PATH 탐색과 상태 확인
@@ -107,7 +108,8 @@ Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일�
 - [x] Apple EventKit Calendar·Reminders plugin과 공통 Swift native helper
 - [x] Plugin Manager의 발견·검증·설치 상태·활성화·비활성화
 - [x] 권한 브로커·승인 저장소와 macOS Keychain Credential Store 경계
-- [ ] 플러그인 설정 JSON Schema 기반 화면
+- [x] 내장 서비스 플러그인 연결 설정 화면과 macOS Keychain credential bridge
+- [ ] 사용자 플러그인 설정 JSON Schema 기반 화면
 - [x] 플러그인 프로세스 타임아웃·stderr·graceful shutdown·로그 경계
 - [ ] 플러그인 프로세스 취소·응답 크기 제한
 
@@ -120,7 +122,8 @@ manifest는 사용자가 선택한 권한을 명시적으로 승인하기 전에
 초기화 메시지에는 승인된 권한의 부분집합만 전달한다. Memory/원자적 JSON 승인 저장소와
 실제 `/usr/bin/security` 기반 macOS Keychain Credential Store를 제공하고, credential
 오류와 로그에는 secret 값을 포함하지 않는다. Jira provider API와 Credential Store 연결,
-Calendar provider API 흐름은 완료했고, 권한 승인·플러그인 설정 UI는 후속 단계로 남아 있다.
+Calendar provider API 흐름과 내장 서비스 플러그인의 연결 설정 UI는 완료했고, 사용자
+플러그인 권한 승인·JSON Schema 기반 설정 생성 UI는 후속 단계로 남아 있다.
 transport 취소와 응답 크기 제한도 후속 경계다.
 
 `@queuest/plugin-github`는 이 단계의 첫 실제 Connector다. 고정된
@@ -215,14 +218,14 @@ helper와 Tauri app을 모두 서명하고 nested resource의 `codesign --verify
 
 이 완료는 native helper와 plugin process의 권한 경계·JSONL 수명주기·결정적 no-TCC E2E까지다.
 EventKit에는 read-only TCC 권한이 없으므로 현재 구현은 full access를 받더라도 목록 조회만
-호출한다. 일정/미리알림 UI, 연결 설정·TCC 안내 화면, CalendarEvent·Task 저장 및
+호출한다. 일정/미리알림 UI, TCC 안내·요청 화면, CalendarEvent·Task 저장 및
 `externalRef` deduplication, EventKit에 생성·수정·삭제를 되돌려 쓰는 operation은 후속
 Host/UI 범위이며 별도의 write capability와 명시적 사용자 확인이 필요하다.
 
-이 완료는 API Connector 범위에 한정된다. 가져오기 메뉴, 대상 마일스톤 선택, 외부 항목을
-로컬 Task로 저장하는 UI 흐름과 `externalRef` 중복 방지는 아직 구현하지 않았고, GitHub에
-수정 내용을 되돌려 쓰는 create/update/close/comment 작업도 읽기 전용 범위 밖의 후속
-단계로 남긴다.
+이 완료는 API Connector와 내장 connector 연결 설정 범위에 한정된다. Jira·Calendar·EventKit의
+외부 항목을 로컬 Task 또는 CalendarEvent로 저장하는 흐름은 후속 범위다. GitHub는 아래의 read-only
+가져오기 흐름을 연결했으며, GitHub에 수정 내용을 되돌려 쓰는 create/update/close/comment
+작업은 읽기 전용 범위 밖의 후속 단계로 남긴다.
 
 Jira Cloud에도 UI에서 외부 항목을 local Task로 import하는 흐름과 `externalRef`
 deduplication, provider write operation은 아직 없다. OAuth/3LO와 self-hosted Jira/Data
@@ -233,20 +236,23 @@ Center 지원도 Atlassian Cloud API Connector 이후의 후속 범위다.
 
 ### 8. GitHub Issues 가져오기(UI·Host 흐름)
 
-`@queuest/plugin-github`의 조회·응답 변환 완료와 별개로, 다음 항목은 플러그인을 호출해
-외부 결과를 UI와 로컬 Task에 연결하는 작업이다.
+`@queuest/plugin-github`의 조회·응답 변환을 프로젝트 보드의 GitHub 가져오기 패널과
+로컬 Task 저장 경계에 연결했다. 앱의 현재 Tauri Host 경로는 프로젝트 `repoPath`에서
+`gh` CLI를 호출하며, 동일한 GitHub 이슈 응답을 사용하는 `@queuest/adapter-github`가
+Task 변환을 담당한다.
 
-- [ ] 가져오기 메뉴와 대상 마일스톤 선택
-- [ ] UI에서 GitHub API 인증으로 열린/닫힌 이슈 가져오기
-- [ ] 가져온 항목의 OPEN/CLOSED를 로컬 Task 상태로 매핑
-- [ ] `externalRef` 기반 중복 방지
-- [ ] 이슈 원본 URL 열기
-- [ ] 인증·저장소·네트워크 오류 안내
+- [x] 가져오기 메뉴와 대상 마일스톤 선택
+- [x] UI에서 GitHub 인증 상태로 열린/닫힌 이슈 가져오기
+- [x] 가져온 항목의 OPEN/CLOSED를 로컬 Task 상태로 매핑
+- [x] `externalRef` 기반 중복 방지
+- [x] 이슈 원본 URL 열기
+- [x] 인증·저장소·네트워크 오류 안내
 
 이 단계에서는 외부 서비스로의 쓰기 작업을 추가하지 않는다. GitHub issue 생성·수정·종료·
 댓글 등 provider write operation은 읽기 전용 동기화가 안정화된 뒤 별도로 설계한다.
 
 완료 조건: 같은 저장소에서 가져오기를 반복해도 동일 이슈가 중복 카드로 생성되지 않는다.
+현재 구현은 선택한 새 이슈만 저장하고, 이미 가져온 이슈는 비활성화해 표시한다.
 
 Jira Cloud Connector의 후속 범위도 동일하다. UI import와 local Task 저장, `externalRef`
 deduplication, provider write operation, OAuth/3LO, self-hosted Jira/Data Center 지원은
@@ -270,7 +276,7 @@ Apple EventKit Connector도 native process와 TCC 권한 확인까지 완료했�
 - [x] Calendar 응답 변환·process boundary 테스트 (`@queuest/plugin-calendar`)
 - [x] Apple EventKit 응답 변환·platform permission·process boundary 테스트
 - [x] EventKit Swift helper의 Info.plist embedding·서명 및 Tauri resource build metadata
-- [ ] 로컬 Task `externalRef` 중복 방지 테스트
+- [x] 로컬 Task `externalRef` 중복 방지 및 GitHub Task 변환 테스트
 - [ ] AI 결과 변환·취소·오류 테스트
 - [ ] 키보드 포커스·접근성 라벨·색상 외 상태 표현 점검
 - [ ] 빈 프로젝트·태스크가 많은 프로젝트·도구 미설치 상태 점검

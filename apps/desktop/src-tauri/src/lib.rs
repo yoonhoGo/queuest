@@ -65,6 +65,8 @@ struct ToolDiscovery {
     jj: ToolInfo,
 }
 
+const KEYCHAIN_NAMESPACE: &str = "com.yoonhogo.queuest.credentials";
+
 #[cfg(target_os = "macos")]
 mod popover;
 
@@ -208,6 +210,122 @@ fn set_window_pinned(state: State<'_, WindowState>, pinned: bool) -> Result<(), 
         .map_err(|_| "팝오버 고정 상태를 저장하지 못했습니다.".to_string())?;
     *current = pinned;
     Ok(())
+}
+
+fn keychain_identifiers(plugin_id: &str, connection_id: &str) -> Result<(String, String), String> {
+    let plugin_id = plugin_id.trim();
+    let connection_id = connection_id.trim();
+    if plugin_id.is_empty() || connection_id.is_empty() {
+        return Err("플러그인 ID와 연결 ID를 입력하세요.".to_string());
+    }
+
+    if !plugin_id
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || ".-_".contains(character))
+        || !connection_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || ".-_".contains(character))
+    {
+        return Err("플러그인 ID와 연결 ID에 허용되지 않는 문자가 있습니다.".to_string());
+    }
+
+    let service = format!("{KEYCHAIN_NAMESPACE}.plugin.{plugin_id}");
+    let account = format!("{KEYCHAIN_NAMESPACE}.plugin.{plugin_id}.{connection_id}");
+    Ok((service, account))
+}
+
+#[cfg(target_os = "macos")]
+fn set_keychain_credential(
+    plugin_id: &str,
+    connection_id: &str,
+    value: &str,
+) -> Result<(), String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("credential 값을 입력하세요.".to_string());
+    }
+    let (service, account) = keychain_identifiers(plugin_id, connection_id)?;
+    let output = Command::new("/usr/bin/security")
+        .args([
+            "add-generic-password",
+            "-a",
+            account.as_str(),
+            "-s",
+            service.as_str(),
+            "-w",
+            value,
+            "-U",
+        ])
+        .output()
+        .map_err(|_| "macOS Keychain을 실행하지 못했습니다.".to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err("macOS Keychain에 credential을 저장하지 못했습니다.".to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn delete_keychain_credential(plugin_id: &str, connection_id: &str) -> Result<(), String> {
+    let (service, account) = keychain_identifiers(plugin_id, connection_id)?;
+    let output = Command::new("/usr/bin/security")
+        .args([
+            "delete-generic-password",
+            "-a",
+            account.as_str(),
+            "-s",
+            service.as_str(),
+        ])
+        .output()
+        .map_err(|_| "macOS Keychain을 실행하지 못했습니다.".to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let detail = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
+    if detail.contains("could not be found") || detail.contains("item not found") {
+        Ok(())
+    } else {
+        Err("macOS Keychain에서 credential을 삭제하지 못했습니다.".to_string())
+    }
+}
+
+#[tauri::command]
+async fn plugin_credential_set(
+    plugin_id: String,
+    connection_id: String,
+    value: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "macos")]
+        {
+            return set_keychain_credential(&plugin_id, &connection_id, &value);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (plugin_id, connection_id, value);
+            Err("연결 credential 저장은 macOS Keychain에서만 지원합니다.".to_string())
+        }
+    })
+    .await
+    .map_err(|_| "credential 저장 작업이 중단되었습니다.".to_string())?
+}
+
+#[tauri::command]
+async fn plugin_credential_delete(plugin_id: String, connection_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "macos")]
+        {
+            return delete_keychain_credential(&plugin_id, &connection_id);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (plugin_id, connection_id);
+            Err("연결 credential 삭제는 macOS Keychain에서만 지원합니다.".to_string())
+        }
+    })
+    .await
+    .map_err(|_| "credential 삭제 작업이 중단되었습니다.".to_string())?
 }
 
 fn discover_tool(id: &str, check_authentication: bool) -> ToolInfo {
@@ -475,7 +593,9 @@ pub fn run() {
             github_issue_list,
             validate_repo_path,
             set_window_pinned,
-            discover_tools
+            discover_tools,
+            plugin_credential_set,
+            plugin_credential_delete
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

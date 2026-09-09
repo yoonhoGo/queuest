@@ -59,7 +59,10 @@ process E2E까지 연결했고, `@queuest/plugin-calendar`도 Google Calendar RE
 process E2E까지 연결했다. Apple EventKit은 `@queuest/plugin-eventkit`의 공통 JSONL
 client와 Swift helper 아래에 `@queuest/plugin-apple-calendar`·
 `@queuest/plugin-apple-reminders`를 두며, native process 수명주기와 deterministic no-TCC
-process E2E까지 연결했다. 승인·설정 UI 연결은 아직 남아 있다.
+process E2E까지 연결했다. GitHub는 프로젝트 보드의 read-only import UI까지 연결했고,
+앱의 플러그인 탭에는 내장 connector용 연결 프로필 편집 화면과 macOS Keychain 저장 경계를
+연결했다. 일반 사용자 플러그인의 승인·설정 자동 생성 UI와 Jira·Calendar·EventKit의
+항목 import 화면은 아직 남아 있다.
 
 별도 프로세스는 격리의 경계이지 완전한 보안 샌드박스가 아니다. Connector 플러그인은
 manifest에 선언하고 승인받은 네트워크·secret 권한과 Credential Store adapter를 통해서만
@@ -399,6 +402,14 @@ Keychain command는 shell 없이 `/usr/bin/security`를 execFile 스타일 인�
 credential을 bearer Authorization 헤더에만 사용하고, 오류·stderr·로그·프로토콜
 결과에 token 값을 포함하지 않는다.
 
+앱의 플러그인 탭은 내장 connector의 `PluginConnection` 프로필을 SQLite의
+`plugin_connections` 테이블에 저장한다. 이 테이블에는 plugin ID, connection ID, 표시 이름,
+저장소·프로젝트 키·Calendar ID 같은 비밀 없는 설정과 credential 존재 여부만 기록한다.
+웹뷰가 입력한 GitHub PAT, Jira API token, Google Calendar access token은 Tauri Host가
+Node Credential Store와 같은 service/account 규칙의 macOS Keychain에 저장하며, 조회 명령은
+토큰 값을 웹뷰로 반환하지 않는다. 새 credential을 입력하지 않고 기존 연결을 수정하면
+Keychain 값을 유지한다.
+
 Jira는 논리적으로 `{ pluginId: "com.queuest.jira", name: connectionId }` credential을
 조회하며, Credential Store에는 다음 JSON 문자열을 저장한다.
 
@@ -470,9 +481,10 @@ GitHub·Jira·Calendar 같은 API 조회 플러그인이다.
 - 읽기 전용 동기화부터 시작
 
 GitHub Connector의 현재 read-only scope는 issue 목록(`state=all`, pagination)과 연결
-상태(`GET /user`) 확인이다. create/update/close/comment 같은 provider write operation,
-그리고 조회 결과를 UI에서 선택한 마일스톤의 로컬 Task로 저장하거나
-`externalRef`로 중복 제거하는 Host 흐름은 아직 후속 단계다. 이 범위를 지키기 위해
+상태(`GET /user`) 확인이다. 프로젝트 보드에서는 Host 호환 경로가 프로젝트 `repoPath`의
+`gh` CLI 결과를 `@queuest/adapter-github`로 변환해 선택한 마일스톤의 로컬 Task로 저장한다.
+저장 시 `externalRef`로 중복을 제거하고 `sourceUrl`을 보존한다. create/update/close/comment
+같은 provider write operation은 읽기 전용 범위 밖의 후속 단계다. 이 범위를 지키기 위해
 manifest에는 `api.github.com` network와 `github` secret만 선언하고 filesystem 권한은
 선언하지 않는다.
 
@@ -548,11 +560,13 @@ AI 실행, 로컬 명령, 파일 변환처럼 강한 권한이 필요한 플러�
 8. Apple EventKit 플러그인 (완료: shared Swift EventKit helper, full-access/TCC gate,
    platform permission boundary, local read-only Calendar/Reminders mapping, helper signing,
    Tauri Info.plist/entitlements/resources, process E2E)
-9. 사용자 설치·권한 승인 UI와 업데이트 (후속)
-10. `agent.runner` 기반 AI 플러그인
+9. 내장 connector 연결 설정 UI와 Host Keychain bridge (완료)
+10. 사용자 설치·권한 승인 UI와 업데이트 (후속)
+11. `agent.runner` 기반 AI 플러그인
 
 외부 서비스에서 Queuest로 가져오는 단방향 흐름을 먼저 유지한다. GitHub, Jira, Google
-Calendar와 Apple EventKit connector의 조회·변환은 완료했지만 UI import와 local
+Calendar와 Apple EventKit connector의 조회·변환은 완료했고 내장 connector 연결 설정도
+플러그인 탭에 연결했다. UI import와 local
 Task/CalendarEvent 저장, `externalRef` deduplication은 아직 구현하지 않았다. 외부 서비스에
 수정 내용을 되돌려 쓰는 provider write 기능은 각 capability가 안정화된 뒤 별도로 설계하며,
 Google Calendar OAuth 동의·token refresh·credential provisioning, Apple EventKit UI/TCC

@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  githubIssueExternalRef,
+  githubIssueToTask,
+  listGithubIssues,
+  type GithubIssue,
+} from "@queuest/adapter-github";
 import {
   activeTaskCount,
   advanceTaskStatus,
@@ -12,7 +19,6 @@ import {
   calculateProjectProgress,
   calculateProjectStatus,
   calculateSkillSummaries,
-  canAssignToAi,
   experienceToNextLevel,
   isMilestoneComplete,
   isMilestoneUnlocked,
@@ -25,8 +31,10 @@ import type {
   InboxTodo,
   Loadout,
   Milestone,
+  PluginConnection,
   Project,
   ProjectGraph,
+  ProjectTodo,
   Task,
   TaskStatus,
   Workspace,
@@ -45,6 +53,7 @@ import {
   deleteTask,
   graphForProject,
   loadProjectGraphs,
+  loadProjectTodos,
   loadWorkspaces,
   loadCharacter,
   saveCharacter,
@@ -57,6 +66,13 @@ import {
   type NewProjectInput,
 } from "./data/project";
 import { discoverTools, type ToolDiscovery, type ToolInfo } from "./data/tools";
+import {
+  deletePluginConnection as deleteStoredPluginConnection,
+  deletePluginCredential,
+  loadPluginConnections,
+  savePluginConnection as saveStoredPluginConnection,
+  savePluginCredential,
+} from "./data/plugin";
 import "./App.css";
 
 const STATUS_COLUMNS: Array<{ status: TaskStatus; label: string; hint: string }> = [
@@ -106,6 +122,8 @@ function App() {
   const contentRef = useRef<HTMLElement>(null);
   const previousViewRef = useRef<AppView>(view);
   const [todos, setTodos] = useState<InboxTodo[] | null>(null);
+  const [projectTodos, setProjectTodos] = useState<ProjectTodo[] | null>(null);
+  const [projectTodoLoadError, setProjectTodoLoadError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -134,7 +152,9 @@ function App() {
     let mounted = true;
 
     setTodos(null);
+    setProjectTodos(null);
     setLoadError(null);
+    setProjectTodoLoadError(null);
     setActionError(null);
 
     loadInboxTodos()
@@ -146,6 +166,18 @@ function App() {
       .catch((error: unknown) => {
         if (mounted) {
           setLoadError(readableError(error));
+        }
+      });
+
+    loadProjectTodos()
+      .then((loadedProjectTodos) => {
+        if (mounted) {
+          setProjectTodos(loadedProjectTodos);
+        }
+      })
+      .catch((error: unknown) => {
+        if (mounted) {
+          setProjectTodoLoadError(readableError(error));
         }
       });
 
@@ -261,6 +293,7 @@ function App() {
     setWorkspaces(null);
     setProjectLoadState("idle");
     setProjectLoadError(null);
+    setReloadToken((current) => current + 1);
     setView("inbox");
   }
 
@@ -273,8 +306,28 @@ function App() {
     setView("project-picker");
   }
 
-  function openProjectPicker() {
+  function openProjectPicker(projectId?: string) {
     setActionError(null);
+    if (projectId) {
+      setProjectLoadState("loading");
+      setProjectLoadError(null);
+      setView("project-picker");
+      void (async () => {
+        try {
+          const { graphs } = await refreshProjectPickerData();
+          const graph = graphForProject(graphs, projectId);
+          if (!graph) {
+            throw new Error("프로젝트를 다시 불러오지 못했습니다.");
+          }
+          selectProject(graph);
+        } catch (error: unknown) {
+          setProjectLoadState("error");
+          setProjectLoadError(readableError(error));
+          setActionError(readableError(error));
+        }
+      })();
+      return;
+    }
     setView("project-picker");
   }
 
@@ -286,6 +339,14 @@ function App() {
       setPinned(nextPinned);
     } catch (error: unknown) {
       setActionError(readableError(error));
+    }
+  }
+
+  async function openSourceUrl(url: string): Promise<void> {
+    try {
+      await openUrl(url);
+    } catch (error: unknown) {
+      setActionError(`원본 링크를 열지 못했습니다: ${readableError(error)}`);
     }
   }
 
@@ -391,6 +452,10 @@ function App() {
         onTogglePinned={() => void togglePinned()}
         onBackToInbox={backToInbox}
         onProjectDeleted={backToProjectPicker}
+        onOpenCharacter={() => {
+          setSelectedProjectGraph(null);
+          setView("character");
+        }}
         windowError={actionError}
       />
     );
@@ -406,7 +471,7 @@ function App() {
       />
       <AppNavigation active={view} onNavigate={(next) => next === "project" ? openProjectPicker() : setView(next)} />
       <main className="main-content" ref={contentRef}>
-        {view === "character" ? <CharacterHome /> : view === "plugins" ? <PluginsPanel /> : view === "project-picker" ? (
+        {view === "character" ? <CharacterHome /> : view === "plugins" ? <PluginsPanel onOpenProject={openProjectPicker} /> : view === "project-picker" ? (
           <ProjectPicker
             headingRef={viewHeadingRef}
             onBack={() => setView("inbox")}
@@ -447,6 +512,9 @@ function App() {
             onRecover={recoverTodo}
             onClearActionError={() => setActionError(null)}
             onOpenProject={openProjectPicker}
+            onOpenSource={openSourceUrl}
+            projectTodos={projectTodos}
+            projectTodoLoadError={projectTodoLoadError}
           />
         )}
       </main>
@@ -480,48 +548,493 @@ function AppNavigation({ active, onNavigate }: {
 
 function CharacterHome() {
   const [character, setCharacter] = useState<Character | null>(null);
+  const [graphs, setGraphs] = useState<ProjectGraph[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
   useEffect(() => {
     let cancelled = false;
-    loadCharacter().then((value) => {
-      if (!cancelled) { setCharacter(value ?? DEFAULT_CHARACTER); setError(null); }
-    }).catch((reason: unknown) => { if (!cancelled) setError(readableError(reason)); });
+    setLoading(true);
+    setError(null);
+    Promise.all([loadCharacter(), loadProjectGraphs()])
+      .then(([value, loadedGraphs]) => {
+        if (!cancelled) {
+          setCharacter(value ?? DEFAULT_CHARACTER);
+          setGraphs(loadedGraphs);
+        }
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) {
+          setError(readableError(reason));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
     return () => { cancelled = true; };
   }, [reload]);
-  return <section className="character-home" aria-labelledby="profile-title">
-    <p className="eyebrow">MY CHARACTER</p>
-    <h2 id="profile-title">나의 캐릭터</h2>
-    <p className="page-description">이름과 직업을 설정하세요. 경험치와 장비는 각 프로젝트의 캐릭터 화면에서 확인할 수 있습니다.</p>
-    {error && <div className="action-error" role="alert">{error}<button type="button" onClick={() => setReload((value) => value + 1)}>다시 불러오기</button></div>}
-    {!character && !error && <p role="status">캐릭터를 불러오는 중…</p>}
-    {character && <>
-      <div className="character-summary"><CharacterSprite character={character} /><div><h3>{character.name}</h3><p>{JOB_LABEL[character.job]}</p></div></div>
-      {editing ? <CharacterSettingsPanel character={character} submitting={saving} onClose={() => setEditing(false)} onSubmit={async (next) => {
-        setSaving(true); setError(null);
-        try { await saveCharacter(next); setCharacter(next); setEditing(false); return true; }
-        catch (reason: unknown) { setError(readableError(reason)); return false; }
-        finally { setSaving(false); }
-      }} /> : <button className="primary-button" type="button" onClick={() => setEditing(true)}>캐릭터 편집</button>}
-    </>}
-  </section>;
+  const progress = character && graphs
+    ? calculateGlobalCharacterProgress(graphs, character)
+    : undefined;
+
+  return (
+    <section className="character-home character-sheet" aria-labelledby="profile-title">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">GLOBAL CHARACTER</p>
+          <h2 id="profile-title" tabIndex={-1}>나의 캐릭터</h2>
+        </div>
+        <span className="sheet-rule">전체 프로젝트</span>
+      </div>
+      <p className="page-description">캐릭터는 하나로 유지되고, 경험치와 스킬은 모든 프로젝트의 완료 기록에서 계산됩니다.</p>
+      {error && (
+        <div className="action-error" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => setReload((value) => value + 1)}>다시 불러오기</button>
+        </div>
+      )}
+      {loading && <p role="status">캐릭터와 원정 기록을 불러오는 중…</p>}
+      {character && progress && (
+        <>
+          {editing ? (
+            <CharacterSettingsPanel
+              character={character}
+              submitting={saving}
+              onClose={() => setEditing(false)}
+              onSubmit={async (next) => {
+                setSaving(true);
+                setError(null);
+                try {
+                  await saveCharacter(next);
+                  setCharacter(next);
+                  setEditing(false);
+                  return true;
+                } catch (reason: unknown) {
+                  setError(readableError(reason));
+                  return false;
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            />
+          ) : (
+            <div className="character-home-actions">
+              <button className="primary-button" type="button" onClick={() => setEditing(true)}>
+                캐릭터 편집
+              </button>
+            </div>
+          )}
+
+          <div className="character-summary">
+            <CharacterSprite character={character} />
+            <div className="character-copy">
+              <div className="character-name-row">
+                <h3>{character.name}</h3>
+                <span className="job-badge">{JOB_LABEL[character.job]}</span>
+              </div>
+              <p>Lv. {progress.level} 원정대원</p>
+              <div className="xp-row">
+                <span>XP {progress.experience}</span>
+                <span>다음 레벨까지 {progress.experienceToNextLevel}</span>
+              </div>
+              <div
+                className="xp-track"
+                role="progressbar"
+                aria-label={`경험치 ${progress.experience}`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progress.levelProgress}
+              >
+                <span aria-hidden="true" style={{ width: `${progress.levelProgress}%` }} />
+              </div>
+            </div>
+          </div>
+
+          <div className="sheet-grid">
+            <div className="skill-panel">
+              <div className="panel-heading">
+                <h3>스킬</h3>
+                <span>전체 완료 태스크 기준</span>
+              </div>
+              <div className="skill-list">
+                {progress.skills.length > 0 ? progress.skills.map((skill) => (
+                  <div className={`skill-row ${skill.emphasized ? "emphasized" : ""}`} key={skill.name}>
+                    <div className="skill-label">
+                      <span>{skill.name}</span>
+                      <strong>{skill.level}</strong>
+                    </div>
+                    <div
+                      className="skill-track"
+                      role="progressbar"
+                      aria-label={`${skill.name} 레벨 ${skill.level}`}
+                      aria-valuemin={0}
+                      aria-valuemax={5}
+                      aria-valuenow={skill.level}
+                    >
+                      <span aria-hidden="true" style={{ width: `${Math.min(100, skill.level * 20)}%` }} />
+                    </div>
+                  </div>
+                )) : <p className="panel-empty">완료한 태스크가 쌓이면 스킬이 나타납니다.</p>}
+              </div>
+            </div>
+
+            <div className="character-stats-panel">
+              <div className="panel-heading">
+                <h3>활동 기록</h3>
+                <span>모든 원정</span>
+              </div>
+              <dl className="character-stat-list">
+                <div><dt>프로젝트</dt><dd>{progress.projectCount}</dd></div>
+                <div><dt>진행 중</dt><dd>{progress.activeTaskCount}</dd></div>
+                <div><dt>완료 퀘스트</dt><dd>{progress.completedTaskCount}</dd></div>
+              </dl>
+            </div>
+          </div>
+
+          <section className="character-projects" aria-labelledby="character-projects-title">
+            <div className="panel-heading">
+              <h3 id="character-projects-title">원정 기록</h3>
+              <span>{progress.projects.length}개</span>
+            </div>
+            <div className="character-project-list">
+              {progress.projects.length > 0 ? progress.projects.map((item) => (
+                <div className="character-project-row" key={item.project.id}>
+                  <div>
+                    <strong>{item.project.name}</strong>
+                    <small>{item.completedTaskCount}/{item.taskCount} 퀘스트 완료</small>
+                  </div>
+                  <span>{item.progress}%</span>
+                </div>
+              )) : <p className="panel-empty">프로젝트를 열면 원정 기록이 여기에 표시됩니다.</p>}
+            </div>
+          </section>
+        </>
+      )}
+    </section>
+  );
 }
 
-const CONNECTORS = [
-  { name: "GitHub", description: "저장소의 이슈와 작업을 확인합니다." },
-  { name: "Jira", description: "Jira Cloud 이슈를 확인합니다." },
-  { name: "Google Calendar", description: "캘린더와 일정을 확인합니다." },
-  { name: "Apple Calendar", description: "Mac의 캘린더 일정을 확인합니다." },
-  { name: "Apple Reminders", description: "Mac의 미리 알림을 확인합니다." },
+interface GlobalCharacterProgress {
+  experience: number;
+  level: number;
+  levelProgress: number;
+  experienceToNextLevel: number;
+  completedTaskCount: number;
+  activeTaskCount: number;
+  projectCount: number;
+  skills: ReturnType<typeof calculateSkillSummaries>;
+  projects: Array<{
+    project: Project;
+    progress: number;
+    completedTaskCount: number;
+    taskCount: number;
+  }>;
+}
+
+function calculateGlobalCharacterProgress(
+  graphs: ProjectGraph[],
+  character: Character,
+): GlobalCharacterProgress {
+  const experience = graphs.reduce(
+    (total, graph) => total + calculateExperience(graph.milestones, graph.tasks),
+    0,
+  );
+  const skillsByName = new Map<string, ReturnType<typeof calculateSkillSummaries>[number]>();
+  for (const graph of graphs) {
+    for (const skill of calculateSkillSummaries(graph.project, graph.milestones, graph.tasks, character)) {
+      const existing = skillsByName.get(skill.name);
+      skillsByName.set(skill.name, existing
+        ? { ...existing, level: existing.level + skill.level }
+        : skill);
+    }
+  }
+  const projects = graphs.map((graph) => ({
+    project: graph.project,
+    progress: calculateProjectProgress(graph.milestones, graph.tasks),
+    completedTaskCount: graph.tasks.filter((task) => task.status === "done").length,
+    taskCount: graph.tasks.length,
+  })).sort((left, right) => left.project.name.localeCompare(right.project.name));
+
+  return {
+    experience,
+    level: calculateLevel(experience),
+    levelProgress: calculateLevelProgress(experience),
+    experienceToNextLevel: experienceToNextLevel(experience),
+    completedTaskCount: graphs.reduce(
+      (total, graph) => total + graph.tasks.filter((task) => task.status === "done").length,
+      0,
+    ),
+    activeTaskCount: graphs.reduce((total, graph) => total + activeTaskCount(graph.tasks), 0),
+    projectCount: graphs.length,
+    skills: [...skillsByName.values()].sort((left, right) => left.name.localeCompare(right.name)),
+    projects,
+  };
+}
+
+type ConnectorId =
+  | "github"
+  | "jira"
+  | "google-calendar"
+  | "apple-calendar"
+  | "apple-reminders";
+
+type ConnectorCredentialKind = "token" | "jira" | "calendar" | "none";
+
+interface ConnectorDefinition {
+  id: ConnectorId;
+  pluginId: string;
+  name: string;
+  description: string;
+  credentialKind: ConnectorCredentialKind;
+}
+
+const CONNECTORS: ConnectorDefinition[] = [
+  {
+    id: "github",
+    pluginId: "com.queuest.github",
+    name: "GitHub",
+    description: "저장소의 이슈와 작업을 확인합니다.",
+    credentialKind: "token",
+  },
+  {
+    id: "jira",
+    pluginId: "com.queuest.jira",
+    name: "Jira",
+    description: "Jira Cloud 이슈를 확인합니다.",
+    credentialKind: "jira",
+  },
+  {
+    id: "google-calendar",
+    pluginId: "com.queuest.calendar",
+    name: "Google Calendar",
+    description: "캘린더와 일정을 확인합니다.",
+    credentialKind: "calendar",
+  },
+  {
+    id: "apple-calendar",
+    pluginId: "com.queuest.apple-calendar",
+    name: "Apple Calendar",
+    description: "Mac의 캘린더 일정을 확인합니다.",
+    credentialKind: "none",
+  },
+  {
+    id: "apple-reminders",
+    pluginId: "com.queuest.apple-reminders",
+    name: "Apple Reminders",
+    description: "Mac의 미리 알림을 확인합니다.",
+    credentialKind: "none",
+  },
 ];
 
-function PluginsPanel() {
+interface PluginConnectionDraft {
+  connectionId: string;
+  label: string;
+  config: Record<string, string>;
+  credential: string;
+}
+
+interface PluginConnectionEditorProps {
+  connector: ConnectorDefinition;
+  connection?: PluginConnection;
+  submitting: boolean;
+  onCancel: () => void;
+  onSubmit: (draft: PluginConnectionDraft) => Promise<boolean>;
+  onDelete?: () => void;
+}
+
+function PluginConnectionEditor({
+  connector,
+  connection,
+  submitting,
+  onCancel,
+  onSubmit,
+  onDelete,
+}: PluginConnectionEditorProps) {
+  const [connectionId, setConnectionId] = useState(
+    () => connection?.connectionId ?? `${connector.id}-${crypto.randomUUID().slice(0, 8)}`,
+  );
+  const [label, setLabel] = useState(
+    () => connection?.label ?? `${connector.name} 연결`,
+  );
+  const [config, setConfig] = useState<Record<string, string>>(
+    () => connection?.config ?? {},
+  );
+  const [credential, setCredential] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  function setConfigValue(key: string, value: string) {
+    setConfig((current) => ({ ...current, [key]: value }));
+    setValidationError(null);
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const result = await onSubmit({ connectionId, label, config, credential });
+    if (!result) {
+      setValidationError("입력값을 확인하세요.");
+    }
+  }
+
+  const hasStoredCredential = connection?.credentialStored ?? false;
+
+  return (
+    <section className="plugin-connection-editor editor-panel" aria-labelledby="connection-editor-title">
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">{connection ? "EDIT CONNECTION" : "NEW CONNECTION"}</p>
+          <h3 id="connection-editor-title">{connector.name} 연결 설정</h3>
+        </div>
+        <span className="section-note">{connector.pluginId}</span>
+      </div>
+      <form onSubmit={submit}>
+        <div className="editor-grid">
+          <label>
+            연결 이름
+            <input
+              type="text"
+              value={label}
+              onChange={(event) => { setLabel(event.target.value); setValidationError(null); }}
+              placeholder={`예: ${connector.name} 개인 계정`}
+              disabled={submitting}
+            />
+          </label>
+          <label>
+            연결 ID
+            <input
+              type="text"
+              value={connectionId}
+              onChange={(event) => { setConnectionId(event.target.value); setValidationError(null); }}
+              disabled={submitting || Boolean(connection)}
+            />
+            {!connection && <span className="field-hint">영문, 숫자, ., -, _만 사용할 수 있습니다.</span>}
+          </label>
+        </div>
+
+        {connector.id === "github" && (
+          <label>
+            저장소
+            <input
+              type="text"
+              value={config.repository ?? ""}
+              onChange={(event) => setConfigValue("repository", event.target.value)}
+              placeholder="owner/repository"
+              disabled={submitting}
+            />
+            <span className="field-hint">플러그인 조회에 사용할 기본 저장소입니다. 프로젝트의 gh 가져오기는 작업 폴더 설정을 따릅니다.</span>
+          </label>
+        )}
+
+        {connector.id === "jira" && (
+          <>
+            <div className="editor-grid">
+              <label>
+                Jira 사이트 URL
+                <input
+                  type="url"
+                  value={config.siteUrl ?? ""}
+                  onChange={(event) => setConfigValue("siteUrl", event.target.value)}
+                  placeholder="https://example.atlassian.net"
+                  disabled={submitting}
+                />
+              </label>
+              <label>
+                계정 이메일
+                <input
+                  type="email"
+                  value={config.email ?? ""}
+                  onChange={(event) => setConfigValue("email", event.target.value)}
+                  placeholder="account@example.com"
+                  disabled={submitting}
+                />
+              </label>
+            </div>
+            <label>
+              프로젝트 키
+              <input
+                type="text"
+                value={config.projectKey ?? ""}
+                onChange={(event) => setConfigValue("projectKey", event.target.value)}
+                placeholder="QUEUEST"
+                disabled={submitting}
+              />
+            </label>
+          </>
+        )}
+
+        {(connector.id === "google-calendar" || connector.id === "apple-calendar") && (
+          <label>
+            캘린더 ID
+            <textarea
+              value={config.calendarIds ?? ""}
+              onChange={(event) => setConfigValue("calendarIds", event.target.value)}
+              placeholder={connector.id === "google-calendar" ? "primary\ncalendar-id@group.calendar.google.com" : "캘린더 식별자"}
+              disabled={submitting}
+            />
+            <span className="field-hint">한 줄에 하나씩 입력합니다.</span>
+          </label>
+        )}
+
+        {connector.id === "apple-reminders" && (
+          <p className="settings-subsection field-hint">
+            Apple Reminders는 별도 토큰 없이 macOS EventKit 권한과 이 연결 ID를 사용합니다.
+          </p>
+        )}
+
+        {connector.credentialKind !== "none" ? (
+          <label>
+            {connector.credentialKind === "jira" ? "Jira API token" : connector.id === "google-calendar" ? "OAuth access token" : "Personal access token"}
+            <input
+              type="password"
+              value={credential}
+              onChange={(event) => { setCredential(event.target.value); setValidationError(null); }}
+              placeholder={hasStoredCredential ? "입력하지 않으면 현재 credential 유지" : "credential 입력"}
+              autoComplete="new-password"
+              disabled={submitting}
+            />
+            <span className="field-hint">SQLite에는 저장하지 않고 macOS Keychain에만 저장합니다.</span>
+          </label>
+        ) : (
+          <p className="settings-subsection field-hint">
+            macOS 권한 상태는 연결 확인 시 EventKit에서 읽습니다. 이 설정에는 비밀 값이 없습니다.
+          </p>
+        )}
+
+        {validationError && <p className="validation-note" role="alert">{validationError}</p>}
+        <div className="form-actions settings-actions">
+          <button className="primary-button" type="submit" disabled={submitting}>
+            {submitting ? "저장 중…" : "연결 저장"}
+          </button>
+          <button className="secondary-button" type="button" onClick={onCancel} disabled={submitting}>취소</button>
+          {connection && onDelete && (
+            <button className="danger-button" type="button" onClick={onDelete} disabled={submitting}>연결 삭제</button>
+          )}
+        </div>
+      </form>
+    </section>
+  );
+}
+
+interface PluginsPanelProps {
+  onOpenProject?: () => void;
+}
+
+function PluginsPanel({ onOpenProject }: PluginsPanelProps) {
   const [tools, setTools] = useState<ToolDiscovery | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [connections, setConnections] = useState<PluginConnection[] | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [connectionEditor, setConnectionEditor] = useState<{
+    connector: ConnectorDefinition;
+    connection?: PluginConnection;
+  } | null>(null);
+  const [connectionMutation, setConnectionMutation] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [reload, setReload] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
     setScanning(true); setError(null);
@@ -530,6 +1043,140 @@ function PluginsPanel() {
       .finally(() => { if (!cancelled) setScanning(false); });
     return () => { cancelled = true; };
   }, [reload]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setConnectionError(null);
+    loadPluginConnections()
+      .then((value) => { if (!cancelled) setConnections(value); })
+      .catch((reason: unknown) => { if (!cancelled) setConnectionError(readableError(reason)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  function openConnectionEditor(connector: ConnectorDefinition, connection?: PluginConnection) {
+    setConnectionError(null);
+    setConnectionEditor({ connector, ...(connection ? { connection } : {}) });
+  }
+
+  async function saveConnectionDraft(
+    connector: ConnectorDefinition,
+    draft: PluginConnectionDraft,
+  ): Promise<boolean> {
+    const connectionId = draft.connectionId.trim();
+    const label = draft.label.trim();
+    const config = Object.fromEntries(
+      Object.entries(draft.config)
+        .map(([key, value]) => [
+          key,
+          key === "calendarIds"
+            ? value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean).join("\n")
+            : value.trim(),
+        ])
+        .filter(([, value]) => value.length > 0),
+    );
+    const current = connectionEditor?.connection;
+
+    if (!connectionId || !/^[A-Za-z0-9._-]+$/.test(connectionId)) {
+      setConnectionError("연결 ID는 영문, 숫자, ., -, _만 사용할 수 있습니다.");
+      return false;
+    }
+    if (!label) {
+      setConnectionError("연결 이름을 입력하세요.");
+      return false;
+    }
+    if (connector.id === "github" && !config.repository) {
+      setConnectionError("GitHub 저장소를 입력하세요.");
+      return false;
+    }
+    if (connector.id === "jira" && (!config.siteUrl || !config.email || !config.projectKey)) {
+      setConnectionError("Jira 사이트 URL, 계정 이메일, 프로젝트 키를 입력하세요.");
+      return false;
+    }
+    if ((connector.id === "google-calendar" || connector.id === "apple-calendar") && !config.calendarIds) {
+      setConnectionError("캘린더 ID를 하나 이상 입력하세요.");
+      return false;
+    }
+
+    const credential = draft.credential.trim();
+    if (connector.credentialKind !== "none" && !credential && !current?.credentialStored) {
+      setConnectionError("credential을 입력하세요.");
+      return false;
+    }
+
+    let credentialValue = "";
+    if (credential) {
+      if (connector.id === "jira") {
+        credentialValue = JSON.stringify({
+          siteUrl: config.siteUrl,
+          email: config.email,
+          apiToken: credential,
+        });
+      } else if (connector.id === "google-calendar") {
+        credentialValue = JSON.stringify({ accessToken: credential });
+      } else {
+        credentialValue = credential;
+      }
+    }
+
+    const mutationKey = `${connector.pluginId}:${connectionId}`;
+    setConnectionMutation(mutationKey);
+    setConnectionError(null);
+    let credentialWritten = false;
+    try {
+      if (credentialValue) {
+        await savePluginCredential(connector.pluginId, connectionId, credentialValue);
+        credentialWritten = true;
+      }
+      const nextConnection: PluginConnection = {
+        pluginId: connector.pluginId,
+        connectionId,
+        label,
+        config,
+        credentialStored: connector.credentialKind === "none"
+          ? false
+          : Boolean(credentialValue) || Boolean(current?.credentialStored),
+        updatedAt: new Date().toISOString(),
+      };
+      try {
+        await saveStoredPluginConnection(nextConnection);
+      } catch (reason: unknown) {
+        if (credentialWritten && !current?.credentialStored) {
+          await deletePluginCredential(connector.pluginId, connectionId).catch(() => undefined);
+        }
+        throw reason;
+      }
+      setConnections(await loadPluginConnections());
+      setConnectionEditor(null);
+      return true;
+    } catch (reason: unknown) {
+      setConnectionError(readableError(reason));
+      return false;
+    } finally {
+      setConnectionMutation(null);
+    }
+  }
+
+  async function removeConnection(connector: ConnectorDefinition, connection: PluginConnection) {
+    if (!window.confirm(`'${connection.label}' 연결을 삭제할까요?`)) {
+      return;
+    }
+    const mutationKey = `${connector.pluginId}:${connection.connectionId}`;
+    setConnectionMutation(mutationKey);
+    setConnectionError(null);
+    try {
+      if (connection.credentialStored) {
+        await deletePluginCredential(connection.pluginId, connection.connectionId);
+      }
+      await deleteStoredPluginConnection(connection.pluginId, connection.connectionId);
+      setConnections(await loadPluginConnections());
+      setConnectionEditor(null);
+    } catch (reason: unknown) {
+      setConnectionError(readableError(reason));
+    } finally {
+      setConnectionMutation(null);
+    }
+  }
+
   return <section aria-labelledby="plugins-title">
     <p className="eyebrow">CONNECTIONS & TOOLS</p>
     <h2 id="plugins-title">플러그인과 도구</h2>
@@ -543,10 +1190,55 @@ function PluginsPanel() {
       {tool.path && <code>{tool.path}</code>}
     </article>)}</div>}
     <h3>서비스 플러그인</h3>
-    <p className="page-description">커넥터는 구현되어 있으며, 앱에서 연결·권한을 설정하는 기능은 준비 중입니다.</p>
-    <div className="plugin-list">{CONNECTORS.map((connector) => <article className="plugin-card" key={connector.name}>
-      <div className="section-heading"><h3>{connector.name}</h3><span className="tool-tag muted">앱 연결 준비 중</span></div><p>{connector.description}</p>
-    </article>)}</div>
+    <p className="page-description">연결 프로필은 SQLite에 저장하고, API token과 access token은 macOS Keychain에 보관합니다.</p>
+    {connectionError && <p className="action-error" role="alert">{connectionError}</p>}
+    {connectionEditor && (
+      <PluginConnectionEditor
+        key={`${connectionEditor.connector.pluginId}:${connectionEditor.connection?.connectionId ?? "new"}`}
+        connector={connectionEditor.connector}
+        connection={connectionEditor.connection}
+        submitting={connectionMutation !== null}
+        onCancel={() => setConnectionEditor(null)}
+        onSubmit={(draft) => saveConnectionDraft(connectionEditor.connector, draft)}
+        onDelete={connectionEditor.connection
+          ? () => void removeConnection(connectionEditor.connector, connectionEditor.connection!)
+          : undefined}
+      />
+    )}
+    {connections === null && <p role="status">저장된 연결을 불러오는 중…</p>}
+    <div className="plugin-list">{CONNECTORS.map((connector) => {
+      const connectorConnections = connections?.filter((connection) => connection.pluginId === connector.pluginId) ?? [];
+      const hasMissingCredential = connector.credentialKind !== "none"
+        && connectorConnections.some((connection) => !connection.credentialStored);
+      const status = connectorConnections.length === 0
+        ? connector.id === "github" ? "가져오기 사용 가능" : "미연결"
+        : hasMissingCredential ? "credential 필요" : "설정됨";
+      const statusClass = connectorConnections.length === 0
+        ? connector.id === "github" ? "equipped" : "muted"
+        : hasMissingCredential ? "warning" : "equipped";
+      return <article className="plugin-card" key={connector.id}>
+        <div className="section-heading"><h3>{connector.name}</h3><span className={`tool-tag ${statusClass}`}>{status}</span></div>
+        <p>{connector.id === "github" ? "프로젝트 작업 폴더와 gh 인증을 사용해 이슈를 선택한 스테이지의 퀘스트로 가져옵니다." : connector.description}</p>
+        <div className="plugin-card-actions">
+          <button className="secondary-button" type="button" onClick={() => openConnectionEditor(connector)}>연결 추가</button>
+          {connector.id === "github" && onOpenProject && <button className="secondary-button" type="button" onClick={() => onOpenProject()}>프로젝트에서 GitHub 사용</button>}
+        </div>
+        {connectorConnections.length > 0 && (
+          <div className="plugin-connection-list" aria-label={`${connector.name} 저장된 연결`}>
+            {connectorConnections.map((connection) => {
+              const mutationKey = `${connection.pluginId}:${connection.connectionId}`;
+              return <div className="plugin-connection-row" key={mutationKey}>
+                <div>
+                  <strong>{connection.label}</strong>
+                  <small>{connection.connectionId} · {connection.credentialStored ? "credential 저장됨" : "macOS 권한만 사용"}</small>
+                </div>
+                <button className="small-button" type="button" onClick={() => openConnectionEditor(connector, connection)} disabled={connectionMutation === mutationKey}>편집</button>
+              </div>;
+            })}
+          </div>
+        )}
+      </article>;
+    })}</div>
   </section>;
 }
 
@@ -643,7 +1335,10 @@ interface TodoInboxProps {
   onDelete: (todo: InboxTodo) => Promise<boolean>;
   onRecover: () => Promise<boolean>;
   onClearActionError: () => void;
-  onOpenProject: () => void;
+  onOpenProject: (projectId?: string) => void;
+  onOpenSource: (url: string) => Promise<void>;
+  projectTodos: ProjectTodo[] | null;
+  projectTodoLoadError: string | null;
 }
 
 function TodoInbox({
@@ -657,6 +1352,9 @@ function TodoInbox({
   onRecover,
   onClearActionError,
   onOpenProject,
+  onOpenSource,
+  projectTodos,
+  projectTodoLoadError,
 }: TodoInboxProps) {
   const [draftTitle, setDraftTitle] = useState("");
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
@@ -784,6 +1482,34 @@ function TodoInbox({
         </section>
       )}
 
+      <section className="project-todo-panel" aria-labelledby="project-todo-title">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">PROJECT QUEUE</p>
+            <h2 id="project-todo-title">프로젝트의 할 일</h2>
+          </div>
+          <span className="section-note">{projectTodos?.length ?? 0}개</span>
+        </div>
+        {projectTodoLoadError ? (
+          <p className="validation-note" role="alert">프로젝트 할 일을 불러오지 못했습니다: {projectTodoLoadError}</p>
+        ) : projectTodos === null ? (
+          <p className="panel-empty" role="status">프로젝트 할 일을 불러오는 중…</p>
+        ) : projectTodos.length === 0 ? (
+          <p className="panel-empty">프로젝트를 만들고 퀘스트를 추가하면 이곳에서도 볼 수 있습니다.</p>
+        ) : (
+          <div className="todo-list project-todo-list">
+            {projectTodos.map((item) => (
+              <ProjectTodoRow
+                key={item.task.id}
+                item={item}
+                onOpen={() => onOpenProject(item.project.id)}
+                onOpenSource={item.task.sourceUrl ? () => void onOpenSource(item.task.sourceUrl!) : undefined}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
       {deletedTodo && (
         <div className="undo-bar" role="status" aria-live="polite">
           <span>“{deletedTodo.title}”을(를) 삭제했습니다.</span>
@@ -797,7 +1523,7 @@ function TodoInbox({
           <h2 id="project-next-title">프로젝트에서 이어가기</h2>
           <p>할 일을 정리할 준비가 되면 원정과 스테이지를 열어보세요.</p>
         </div>
-        <button className="secondary-button" type="button" onClick={onOpenProject}>
+        <button className="secondary-button" type="button" onClick={() => onOpenProject()}>
           프로젝트 열기 또는 만들기
         </button>
       </section>
@@ -886,6 +1612,32 @@ function TodoRow({
           <button className="row-action danger" type="button" onClick={() => void onDelete()}>삭제</button>
         </div>
       )}
+    </article>
+  );
+}
+
+interface ProjectTodoRowProps {
+  item: ProjectTodo;
+  onOpen: () => void;
+  onOpenSource?: () => void;
+}
+
+function ProjectTodoRow({ item, onOpen, onOpenSource }: ProjectTodoRowProps) {
+  const statusLabel = STATUS_COLUMNS.find((column) => column.status === item.task.status)?.label ?? item.task.status;
+
+  return (
+    <article className={`todo-row project-todo-row ${item.task.status === "done" ? "completed" : ""}`}>
+      <span className={`project-todo-status ${item.task.status}`} aria-label={`프로젝트 태스크 상태: ${statusLabel}`}>
+        {item.task.status === "done" ? "✓" : "◆"}
+      </span>
+      <div className="todo-copy">
+        <span className="todo-title">{item.task.title}</span>
+        <span className="todo-meta">{item.project.name} · {item.milestone.name} · {statusLabel}</span>
+      </div>
+      <div className="todo-actions">
+        {onOpenSource && <button className="row-action" type="button" onClick={onOpenSource}>원본</button>}
+        <button className="row-action" type="button" onClick={onOpen}>프로젝트 열기</button>
+      </div>
     </article>
   );
 }
@@ -1871,6 +2623,187 @@ function CharacterSettingsPanel({
   );
 }
 
+interface GithubImportPanelProps {
+  project: Project;
+  milestones: Milestone[];
+  tasks: Task[];
+  tools: ToolDiscovery | null;
+  defaultMilestoneId?: string;
+  submitting: boolean;
+  onCancel: () => void;
+  onImport: (issues: GithubIssue[], milestoneId: string) => Promise<boolean>;
+}
+
+function GithubImportPanel({
+  project,
+  milestones,
+  tasks,
+  tools,
+  defaultMilestoneId,
+  submitting,
+  onCancel,
+  onImport,
+}: GithubImportPanelProps) {
+  const [issues, setIssues] = useState<GithubIssue[] | null>(null);
+  const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set());
+  const [milestoneId, setMilestoneId] = useState(defaultMilestoneId ?? milestones[0]?.id ?? "");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const existingRefs = useMemo(
+    () => new Set(tasks.flatMap((task) => task.externalRef ? [task.externalRef] : [])),
+    [tasks],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    listGithubIssues(project)
+      .then((loadedIssues) => {
+        if (cancelled) {
+          return;
+        }
+        setIssues(loadedIssues);
+        setSelectedRefs(new Set(
+          loadedIssues
+            .filter((issue) => !existingRefs.has(githubIssueExternalRef(issue)))
+            .map(githubIssueExternalRef),
+        ));
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled) {
+          setError(readableError(reason));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [existingRefs, project]);
+
+  function toggleIssue(issue: GithubIssue): void {
+    const ref = githubIssueExternalRef(issue);
+    setSelectedRefs((current) => {
+      const next = new Set(current);
+      if (next.has(ref)) {
+        next.delete(ref);
+      } else if (!existingRefs.has(ref)) {
+        next.add(ref);
+      }
+      return next;
+    });
+  }
+
+  function selectAllNewIssues(): void {
+    setSelectedRefs(new Set(
+      (issues ?? [])
+        .filter((issue) => !existingRefs.has(githubIssueExternalRef(issue)))
+        .map(githubIssueExternalRef),
+    ));
+  }
+
+  async function handleImport(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const selectedIssues = (issues ?? []).filter((issue) => selectedRefs.has(githubIssueExternalRef(issue)));
+    if (!milestoneId) {
+      setError("가져올 대상 스테이지를 선택하세요.");
+      return;
+    }
+    if (selectedIssues.length === 0) {
+      setError("가져올 새 GitHub 이슈를 하나 이상 선택하세요.");
+      return;
+    }
+
+    setError(null);
+    if (!(await onImport(selectedIssues, milestoneId))) {
+      setError("GitHub 이슈를 저장하지 못했습니다.");
+    }
+  }
+
+  async function openIssue(issue: GithubIssue): Promise<void> {
+    try {
+      await openUrl(issue.url);
+    } catch (reason: unknown) {
+      setError(`원본 링크를 열지 못했습니다: ${readableError(reason)}`);
+    }
+  }
+
+  const ghUnavailable = tools?.gh.installed === false;
+  const ghNeedsAuth = tools?.gh.authenticated === false;
+
+  return (
+    <form className="editor-panel github-import-panel" onSubmit={(event) => void handleImport(event)}>
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">GITHUB PLUGIN</p>
+          <h2>GitHub 이슈 가져오기</h2>
+        </div>
+        <span className="section-note">읽기 전용</span>
+      </div>
+      <p className="field-hint">
+        {project.repoPath ? `${project.repoPath}의 이슈를 선택한 스테이지에 퀘스트로 저장합니다.` : "프로젝트 작업 폴더가 필요합니다."}
+      </p>
+      {ghUnavailable && <p className="validation-note" role="alert">gh가 설치되어 있지 않습니다.</p>}
+      {ghNeedsAuth && <p className="validation-note" role="alert">gh 인증이 필요합니다. 터미널에서 `gh auth login`을 먼저 실행하세요.</p>}
+      <label>
+        가져올 스테이지
+        <select value={milestoneId} disabled={submitting || milestones.length === 0} onChange={(event) => setMilestoneId(event.target.value)}>
+          {milestones.map((milestone) => <option key={milestone.id} value={milestone.id}>{milestone.name}</option>)}
+        </select>
+      </label>
+      <div className="import-toolbar">
+        <span className="section-note">
+          {selectedRefs.size}개 선택 · {issues?.length ?? 0}개 발견
+        </span>
+        <button className="small-button" type="button" disabled={loading || submitting || !issues} onClick={selectAllNewIssues}>
+          새 이슈 모두 선택
+        </button>
+      </div>
+      {error && <p className="validation-note" role="alert">{error}</p>}
+      {loading ? (
+        <p className="panel-empty" role="status">GitHub 이슈를 불러오는 중…</p>
+      ) : issues && issues.length > 0 ? (
+        <div className="github-issue-list" role="list" aria-label="GitHub 이슈 목록">
+          {issues.map((issue) => {
+            const ref = githubIssueExternalRef(issue);
+            const duplicate = existingRefs.has(ref);
+            return (
+              <div className={`github-issue-row ${duplicate ? "duplicate" : ""}`} key={ref} role="listitem">
+                <label className="github-issue-select">
+                  <input
+                    type="checkbox"
+                    checked={selectedRefs.has(ref)}
+                    disabled={duplicate || submitting}
+                    onChange={() => toggleIssue(issue)}
+                  />
+                  <span className="github-issue-copy">
+                    <strong>{issue.title}</strong>
+                    <small>{issue.state === "CLOSED" ? "닫힘" : "열림"}{duplicate ? " · 이미 가져옴" : ""}</small>
+                  </span>
+                </label>
+                <button className="row-action" type="button" onClick={() => void openIssue(issue)}>원본</button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="panel-empty">가져올 GitHub 이슈가 없습니다.</p>
+      )}
+      <div className="form-actions">
+        <button className="primary-button" type="submit" disabled={submitting || loading || selectedRefs.size === 0}>
+          {submitting ? "저장 중…" : `${selectedRefs.size}개 가져오기`}
+        </button>
+        <button className="secondary-button" type="button" onClick={onCancel} disabled={submitting}>취소</button>
+      </div>
+    </form>
+  );
+}
+
 interface ConfirmDialogProps {
   title: string;
   message: string;
@@ -1926,10 +2859,11 @@ interface ProjectBoardProps {
   onTogglePinned: () => void;
   onBackToInbox: () => void;
   onProjectDeleted: () => void;
+  onOpenCharacter: () => void;
 }
 
-function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectDeleted, windowError }: ProjectBoardProps) {
-  const [section, setSection] = useState<"project" | "character" | "plugins">("project");
+function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectDeleted, onOpenCharacter, windowError }: ProjectBoardProps) {
+  const [section, setSection] = useState<"project" | "plugins">("project");
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [section]);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -1942,19 +2876,18 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
     graph.milestones[0]?.id ?? null,
   );
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [mutation, setMutation] = useState<"task" | "milestone" | "project" | "character" | null>(null);
+  const [mutation, setMutation] = useState<"task" | "milestone" | "project" | null>(null);
   const [taskEditor, setTaskEditor] = useState<{
     task?: Task;
     milestoneId: string;
   } | null>(null);
   const [milestoneEditor, setMilestoneEditor] = useState<{ milestone?: Milestone } | null>(null);
   const [showProjectSettings, setShowProjectSettings] = useState(false);
-  const [showCharacterSettings, setShowCharacterSettings] = useState(false);
+  const [githubImportOpen, setGithubImportOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [milestoneToDelete, setMilestoneToDelete] = useState<Milestone | null>(null);
   const [confirmProjectDelete, setConfirmProjectDelete] = useState(false);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
-  const [character, setCharacter] = useState<Character>(graph.character ?? DEFAULT_CHARACTER);
   const [loadout, setLoadout] = useState<Loadout>(
     graph.loadout ?? { ...DEFAULT_LOADOUT, projectId: project.id },
   );
@@ -1973,17 +2906,6 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
     : -1;
   const projectProgress = calculateProjectProgress(orderedMilestones, tasks);
   const projectStatus = calculateProjectStatus(orderedMilestones, tasks);
-  const experience = calculateExperience(orderedMilestones, tasks);
-  const level = calculateLevel(experience);
-  const experienceForNextLevel = experienceToNextLevel(experience);
-  const levelProgress = calculateLevelProgress(experience);
-  const skillSummaries = calculateSkillSummaries(
-    project,
-    orderedMilestones,
-    tasks,
-    character,
-  );
-  const aiReady = canAssignToAi(project, loadout) && tools?.claude.installed === true;
   const selectedTasks = useMemo(
     () => (selectedMilestone ? tasks.filter((task) => task.milestoneId === selectedMilestone.id) : []),
     [selectedMilestone?.id, tasks],
@@ -2038,6 +2960,44 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
       );
       return true;
     } catch (error: unknown) {
+      setSaveError(readableError(error));
+      return false;
+    } finally {
+      setMutation(null);
+    }
+  }
+
+  async function importGithubTasks(importedTasks: Task[]): Promise<boolean> {
+    const existingRefs = new Set(
+      tasks.flatMap((task) => task.externalRef ? [task.externalRef] : []),
+    );
+    const newTasks = importedTasks.filter((task) => {
+      if (!task.externalRef || existingRefs.has(task.externalRef)) {
+        return false;
+      }
+      existingRefs.add(task.externalRef);
+      return true;
+    });
+
+    if (newTasks.length === 0) {
+      setSaveError("선택한 GitHub 이슈는 이미 이 프로젝트에 가져와져 있습니다.");
+      return false;
+    }
+
+    setSaveError(null);
+    setMutation("task");
+    const savedTasks: Task[] = [];
+    try {
+      for (const task of newTasks) {
+        await saveTask(task);
+        savedTasks.push(task);
+      }
+      setTasks((current) => [...current, ...savedTasks]);
+      return true;
+    } catch (error: unknown) {
+      if (savedTasks.length > 0) {
+        setTasks((current) => [...current, ...savedTasks]);
+      }
       setSaveError(readableError(error));
       return false;
     } finally {
@@ -2270,23 +3230,6 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
     }
   }
 
-  async function saveCharacterSettings(updatedCharacter: Character): Promise<boolean> {
-    setSaveError(null);
-    setMutation("character");
-
-    try {
-      await saveCharacter(updatedCharacter);
-      setCharacter(updatedCharacter);
-      setShowCharacterSettings(false);
-      return true;
-    } catch (error: unknown) {
-      setSaveError(readableError(error));
-      return false;
-    } finally {
-      setMutation(null);
-    }
-  }
-
   async function removeProject(): Promise<void> {
     setSaveError(null);
     setMutation("project");
@@ -2299,6 +3242,18 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
     } finally {
       setMutation(null);
       setConfirmProjectDelete(false);
+    }
+  }
+
+  async function openTaskSource(task: Task): Promise<void> {
+    if (!task.sourceUrl) {
+      return;
+    }
+
+    try {
+      await openUrl(task.sourceUrl);
+    } catch (error: unknown) {
+      setSaveError(`원본 링크를 열지 못했습니다: ${readableError(error)}`);
     }
   }
 
@@ -2355,10 +3310,28 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
         </div>
       </header>
 
-      <AppNavigation active={section} onNavigate={(next) => next === "inbox" ? onBackToInbox() : setSection(next)} />
+      <AppNavigation
+        active={section}
+        onNavigate={(next) => {
+          if (next === "inbox") {
+            onBackToInbox();
+          } else if (next === "character") {
+            onOpenCharacter();
+          } else {
+            setSection(next);
+          }
+        }}
+      />
       <main className="main-content" ref={mainRef}>
         {windowError && <p className="action-error" role="alert">{windowError}</p>}
-        {section === "plugins" && <PluginsPanel />}
+        {section === "plugins" && (
+          <PluginsPanel
+            onOpenProject={() => {
+              setSection("project");
+              setGithubImportOpen(true);
+            }}
+          />
+        )}
         <div hidden={section !== "project"}>
         <section className="workspace-header" aria-labelledby="workspace-title">
           <div>
@@ -2523,6 +3496,26 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
           )}
         </section>
 
+        {githubImportOpen && (
+          <GithubImportPanel
+            project={project}
+            milestones={orderedMilestones}
+            tasks={tasks}
+            tools={tools}
+            defaultMilestoneId={selectedMilestone?.id}
+            submitting={mutation === "task"}
+            onCancel={() => setGithubImportOpen(false)}
+            onImport={async (issues, milestoneId) => {
+              const importedTasks = issues.map((issue) => githubIssueToTask(issue, project, milestoneId));
+              const saved = await importGithubTasks(importedTasks);
+              if (saved) {
+                setGithubImportOpen(false);
+              }
+              return saved;
+            }}
+          />
+        )}
+
         {selectedMilestone ? (
           <section className="quest-section" aria-labelledby="quest-title">
             <div className="section-heading quest-heading">
@@ -2532,6 +3525,14 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
               </div>
               <div className="quest-heading-actions">
                 <span className="section-note">{selectedTasks.length}개의 퀘스트</span>
+                <button
+                  className="small-button"
+                  type="button"
+                  onClick={() => setGithubImportOpen(true)}
+                  disabled={mutation !== null || orderedMilestones.length === 0}
+                >
+                  GitHub 가져오기
+                </button>
                 <button
                   className="small-button accent"
                   type="button"
@@ -2579,6 +3580,7 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
                             onRetreat={() => moveTaskBackward(task)}
                             onEdit={() => setTaskEditor({ task, milestoneId: task.milestoneId })}
                             onDelete={() => setTaskToDelete(task)}
+                            onOpenSource={task.sourceUrl ? () => void openTaskSource(task) : undefined}
                             onDragStart={() => setDraggedTaskId(task.id)}
                             onDragEnd={() => setDraggedTaskId(null)}
                           />
@@ -2605,136 +3607,6 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
         )}
 
         </div>
-        <section hidden={section !== "character"} className="character-sheet" aria-labelledby="character-title">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">CHARACTER SHEET</p>
-              <h2 id="character-title">나의 캐릭터</h2>
-            </div>
-            <div className="quest-heading-actions">
-              <span className="sheet-rule">{project.name}</span>
-              <button
-                className="small-button"
-                type="button"
-                onClick={() => setShowCharacterSettings(true)}
-                disabled={mutation !== null}
-              >
-                캐릭터 편집
-              </button>
-            </div>
-          </div>
-
-          {showCharacterSettings && (
-            <CharacterSettingsPanel
-              character={character}
-              submitting={mutation === "character"}
-              onClose={() => setShowCharacterSettings(false)}
-              onSubmit={saveCharacterSettings}
-            />
-          )}
-
-          <div className="character-summary">
-            <CharacterSprite character={character} />
-            <div className="character-copy">
-              <div className="character-name-row">
-                <h3>{character.name}</h3>
-                <span className="job-badge">{JOB_LABEL[character.job]}</span>
-              </div>
-              <p>Lv. {level} 원정대원</p>
-              <div className="xp-row">
-                <span>XP {experience}</span>
-                <span>다음 레벨까지 {experienceForNextLevel}</span>
-              </div>
-              <div
-                className="xp-track"
-                role="progressbar"
-                aria-label={`경험치 ${experience}`}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={levelProgress}
-              >
-                <span aria-hidden="true" style={{ width: `${levelProgress}%` }} />
-              </div>
-            </div>
-          </div>
-
-          <div className="sheet-grid">
-            <div className="skill-panel">
-              <div className="panel-heading">
-                <h3>스킬</h3>
-                <span>완료 태스크 기준</span>
-              </div>
-              <div className="skill-list">
-                {skillSummaries.map((skill) => (
-                  <div className={`skill-row ${skill.emphasized ? "emphasized" : ""}`} key={skill.name}>
-                    <div className="skill-label">
-                      <span>{skill.name}</span>
-                      <strong>{skill.level}</strong>
-                    </div>
-                    <div
-                      className="skill-track"
-                      role="progressbar"
-                      aria-label={`${skill.name} 레벨 ${skill.level}`}
-                      aria-valuemin={0}
-                      aria-valuemax={5}
-                      aria-valuenow={skill.level}
-                    >
-                      <span aria-hidden="true" style={{ width: `${Math.min(100, skill.level * 20)}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="equipment-panel">
-              <div className="panel-heading">
-                <h3>장비</h3>
-                <span>프로젝트 설정</span>
-              </div>
-              <EquipmentSlot
-                label="에이전트"
-                value={loadout.agentTool ?? "비어 있음"}
-                ready={aiReady}
-                detail={
-                  !project.repoPath
-                    ? "repoPath 연결 대기"
-                    : !tools
-                      ? "도구 확인 중"
-                      : !tools.claude.installed
-                        ? "claude 미설치"
-                        : "실행 준비됨"
-                }
-              />
-              <EquipmentSlot
-                label="소스"
-                value={loadout.sourceTool ?? "비어 있음"}
-                ready={
-                  loadout.sourceTool === "gh" &&
-                  tools?.gh.installed === true &&
-                  tools.gh.authenticated !== false
-                }
-                detail={
-                  !loadout.sourceTool
-                    ? "장비를 선택하세요"
-                    : !tools
-                      ? "도구 확인 중"
-                      : !tools.gh.installed
-                        ? "gh 미설치"
-                        : tools.gh.authenticated === false
-                          ? "gh 인증 필요"
-                          : "가져오기 준비됨"
-                }
-              />
-            </div>
-          </div>
-
-          <ToolInventory
-            tools={tools}
-            loadError={toolLoadError}
-            onRefresh={refreshTools}
-          />
-        </section>
-
         <p hidden={section !== "project"} className="prototype-note">
           프로젝트를 명시적으로 선택한 뒤 열리는 원정 보드입니다. 퀘스트·스테이지·프로젝트 설정은 로컬 SQLite에 저장됩니다.
         </p>
@@ -2780,6 +3652,7 @@ interface TaskCardProps {
   onRetreat: () => void | Promise<void>;
   onEdit: () => void;
   onDelete: () => void;
+  onOpenSource?: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
 }
@@ -2790,6 +3663,7 @@ function TaskCard({
   onRetreat,
   onEdit,
   onDelete,
+  onOpenSource,
   onDragStart,
   onDragEnd,
 }: TaskCardProps) {
@@ -2837,17 +3711,11 @@ function TaskCard({
           </button>
         )}
         <button className="row-action" type="button" onClick={onEdit}>편집</button>
+        {onOpenSource && <button className="row-action" type="button" onClick={onOpenSource}>원본</button>}
         <button className="row-action danger" type="button" onClick={onDelete}>삭제</button>
       </div>
     </article>
   );
-}
-
-interface EquipmentSlotProps {
-  label: string;
-  value: string;
-  ready: boolean;
-  detail: string;
 }
 
 interface CharacterSpriteProps {
@@ -2864,54 +3732,6 @@ function CharacterSprite({ character }: CharacterSpriteProps) {
       {SPRITE_ART[character.job].map((line) => (
         <span aria-hidden="true" key={line}>{line}</span>
       ))}
-    </div>
-  );
-}
-
-interface ToolInventoryProps {
-  tools: ToolDiscovery | null;
-  loadError: string | null;
-  onRefresh: () => Promise<void>;
-}
-
-function ToolInventory({ tools, loadError, onRefresh }: ToolInventoryProps) {
-  const entries: ToolInfo[] = tools ? [tools.claude, tools.gh, tools.jj] : [];
-
-  return (
-    <div className="inventory-line" aria-label="발견한 도구">
-      <span className="inventory-label">발견한 도구</span>
-      {entries.length > 0 ? entries.map((tool) => (
-        <span
-          className={`tool-tag ${!tool.installed ? "muted" : tool.authenticated === false ? "warning" : "equipped"}`}
-          key={tool.id}
-          title={tool.path ?? `${tool.id} 경로를 찾지 못했습니다.`}
-        >
-          {tool.id} · {toolStatusLabel(tool)}
-        </span>
-      )) : (
-        <span className="tool-tag muted">확인 중…</span>
-      )}
-      <button className="row-action" type="button" onClick={() => void onRefresh()}>
-        다시 스캔
-      </button>
-      <span className="inventory-note">
-        {loadError ?? (tools ? "PATH와 gh 인증 상태를 확인했습니다." : "Tauri 셸에서 PATH를 탐색하는 중입니다.")}
-      </span>
-    </div>
-  );
-}
-
-function EquipmentSlot({ label, value, ready, detail }: EquipmentSlotProps) {
-  return (
-    <div className={`equipment-slot ${ready ? "ready" : "waiting"}`}>
-      <div className="equipment-icon" aria-hidden="true">
-        {ready ? "✦" : "·"}
-      </div>
-      <div>
-        <span className="equipment-label">{label}</span>
-        <strong>{value}</strong>
-        <small>{detail}</small>
-      </div>
     </div>
   );
 }

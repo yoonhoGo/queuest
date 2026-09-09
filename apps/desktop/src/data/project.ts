@@ -6,6 +6,7 @@ import type {
   Milestone,
   Project,
   ProjectGraph,
+  ProjectTodo,
   Task,
   TaskComment,
   Workspace,
@@ -14,6 +15,10 @@ import { getRepository } from "./repository";
 
 export async function loadProjectGraphs(): Promise<ProjectGraph[]> {
   return (await getRepository()).listProjectGraphs();
+}
+
+export async function loadProjectTodos(): Promise<ProjectTodo[]> {
+  return (await getRepository()).listProjectTodos();
 }
 
 export async function loadWorkspaces(): Promise<Workspace[]> {

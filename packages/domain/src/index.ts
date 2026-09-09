@@ -62,7 +62,19 @@ export interface Task {
   skills: string[];
   blocked: boolean;
   externalRef?: string;
+  sourceUrl?: string;
   comments?: TaskComment[];
+}
+
+/**
+ * A project task projected into the global Todo view. The task remains owned by
+ * its milestone; this shape only carries the names needed by the projection.
+ */
+export interface ProjectTodo {
+  task: Task;
+  workspace: Workspace;
+  project: Project;
+  milestone: Milestone;
 }
 
 export interface Character {
@@ -77,12 +89,27 @@ export interface Loadout {
   sourceTool?: "gh";
 }
 
+/**
+ * Host-owned connection metadata for a service plugin.
+ *
+ * Secret values are deliberately kept out of this shape. `config` contains
+ * only provider metadata and is persisted in SQLite; credentials live in the
+ * host Credential Store.
+ */
+export interface PluginConnection {
+  pluginId: string;
+  connectionId: string;
+  label: string;
+  config: Record<string, string>;
+  credentialStored: boolean;
+  updatedAt: string;
+}
+
 export interface ProjectGraph {
   workspace: Workspace;
   project: Project;
   milestones: Milestone[];
   tasks: Task[];
-  character?: Character;
   loadout?: Loadout;
 }
 

@@ -4,8 +4,10 @@ import type {
   InboxTodo,
   Loadout,
   Milestone,
+  PluginConnection,
   Project,
   ProjectGraph,
+  ProjectTodo,
   Task,
   TaskComment,
   Workspace,
@@ -28,6 +30,12 @@ export interface LoadoutRepository {
   deleteLoadout(projectId: EntityId): Promise<void>;
 }
 
+export interface PluginConnectionRepository {
+  listPluginConnections(): Promise<PluginConnection[]>;
+  savePluginConnection(connection: PluginConnection): Promise<void>;
+  deletePluginConnection(pluginId: string, connectionId: string): Promise<void>;
+}
+
 export interface TaskRepository extends TaskCommentRepository {
   initialize(): Promise<void>;
   listWorkspaces(): Promise<Workspace[]>;
@@ -44,12 +52,17 @@ export interface TaskRepository extends TaskCommentRepository {
 
 export interface InboxTodoRepository {
   listInboxTodos(): Promise<InboxTodo[]>;
+  listProjectTodos(): Promise<ProjectTodo[]>;
   saveInboxTodo(todo: InboxTodo): Promise<void>;
   deleteInboxTodo(todoId: EntityId): Promise<void>;
 }
 
 export interface QueuestRepository
-  extends TaskRepository, CharacterRepository, LoadoutRepository, InboxTodoRepository {}
+  extends TaskRepository,
+    CharacterRepository,
+    LoadoutRepository,
+    PluginConnectionRepository,
+    InboxTodoRepository {}
 
 export interface AppData {
   inboxTodos: InboxTodo[];

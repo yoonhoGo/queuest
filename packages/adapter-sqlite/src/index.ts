@@ -5,8 +5,10 @@ import type {
   InboxTodo,
   Loadout,
   Milestone,
+  PluginConnection,
   Project,
   ProjectGraph,
+  ProjectTodo,
   Task,
   TaskComment,
   Workspace,
@@ -42,7 +44,8 @@ export const SCHEMA_STATEMENTS = [
     assignee TEXT NOT NULL CHECK (assignee IN ('human', 'ai')),
     skills TEXT NOT NULL DEFAULT '[]',
     blocked INTEGER NOT NULL DEFAULT 0,
-    external_ref TEXT
+    external_ref TEXT,
+    source_url TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS task_comments (
     id TEXT PRIMARY KEY,
@@ -68,11 +71,21 @@ export const SCHEMA_STATEMENTS = [
     completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
     created_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS plugin_connections (
+    plugin_id TEXT NOT NULL,
+    connection_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    config TEXT NOT NULL DEFAULT '{}',
+    credential_stored INTEGER NOT NULL DEFAULT 0 CHECK (credential_stored IN (0, 1)),
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (plugin_id, connection_id)
+  )`,
   "CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id)",
   "CREATE INDEX IF NOT EXISTS idx_milestones_project_id ON milestones(project_id)",
   "CREATE INDEX IF NOT EXISTS idx_tasks_milestone_id ON tasks(milestone_id)",
   "CREATE INDEX IF NOT EXISTS idx_task_comments_task_id ON task_comments(task_id)",
   "CREATE INDEX IF NOT EXISTS idx_inbox_todos_created_at ON inbox_todos(created_at)",
+  "CREATE INDEX IF NOT EXISTS idx_plugin_connections_updated_at ON plugin_connections(updated_at)",
 ];
 
 interface WorkspaceRow {
@@ -105,6 +118,31 @@ interface TaskRow {
   skills: string;
   blocked: number | boolean;
   external_ref: string | null;
+  source_url: string | null;
+}
+
+interface ProjectTodoRow {
+  task_id: string;
+  task_milestone_id: string;
+  task_title: string;
+  task_body: string;
+  task_status: Task["status"];
+  task_assignee: Task["assignee"];
+  task_skills: string;
+  task_blocked: number | boolean;
+  task_external_ref: string | null;
+  task_source_url: string | null;
+  milestone_id: string;
+  milestone_project_id: string;
+  milestone_name: string;
+  milestone_order: number;
+  project_id: string;
+  project_workspace_id: string;
+  project_name: string;
+  project_repo_path: string | null;
+  project_skills: string;
+  workspace_id: string;
+  workspace_name: string;
 }
 
 interface TaskCommentRow {
@@ -134,6 +172,15 @@ interface InboxTodoRow {
   created_at: string;
 }
 
+interface PluginConnectionRow {
+  plugin_id: string;
+  connection_id: string;
+  label: string;
+  config: string;
+  credential_stored: number | boolean;
+  updated_at: string;
+}
+
 function readSkills(value: string): string[] {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -156,6 +203,41 @@ function toTask(row: TaskRow): Task {
     skills: readSkills(row.skills),
     blocked: Boolean(row.blocked),
     ...(row.external_ref ? { externalRef: row.external_ref } : {}),
+    ...(row.source_url ? { sourceUrl: row.source_url } : {}),
+  };
+}
+
+function toProjectTodo(row: ProjectTodoRow): ProjectTodo {
+  return {
+    workspace: {
+      id: row.workspace_id,
+      name: row.workspace_name,
+    },
+    project: {
+      id: row.project_id,
+      workspaceId: row.project_workspace_id,
+      name: row.project_name,
+      ...(row.project_repo_path ? { repoPath: row.project_repo_path } : {}),
+      skills: readSkills(row.project_skills),
+    },
+    milestone: {
+      id: row.milestone_id,
+      projectId: row.milestone_project_id,
+      name: row.milestone_name,
+      order: row.milestone_order,
+    },
+    task: {
+      id: row.task_id,
+      milestoneId: row.task_milestone_id,
+      title: row.task_title,
+      body: row.task_body,
+      status: row.task_status,
+      assignee: row.task_assignee,
+      skills: readSkills(row.task_skills),
+      blocked: Boolean(row.task_blocked),
+      ...(row.task_external_ref ? { externalRef: row.task_external_ref } : {}),
+      ...(row.task_source_url ? { sourceUrl: row.task_source_url } : {}),
+    },
   };
 }
 
@@ -194,6 +276,33 @@ function toInboxTodo(row: InboxTodoRow): InboxTodo {
   };
 }
 
+function readConnectionConfig(value: string): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] =>
+        typeof entry[0] === "string" && typeof entry[1] === "string",
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function toPluginConnection(row: PluginConnectionRow): PluginConnection {
+  return {
+    pluginId: row.plugin_id,
+    connectionId: row.connection_id,
+    label: row.label,
+    config: readConnectionConfig(row.config),
+    credentialStored: Boolean(row.credential_stored),
+    updatedAt: row.updated_at,
+  };
+}
+
 export class SqliteTaskRepository implements QueuestRepository, InboxTodoRepository {
   private readonly database: Database;
 
@@ -206,6 +315,15 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
 
     for (const statement of SCHEMA_STATEMENTS) {
       await this.database.execute(statement);
+    }
+
+    // The source URL was added after the first MVP schema. Keep existing local
+    // databases usable without requiring a destructive migration.
+    const taskColumns = await this.database.select<Array<{ name: string }>>(
+      "PRAGMA table_info(tasks)",
+    );
+    if (!taskColumns.some((column) => column.name === "source_url")) {
+      await this.database.execute("ALTER TABLE tasks ADD COLUMN source_url TEXT");
     }
   }
 
@@ -223,7 +341,6 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
       milestoneRows,
       taskRows,
       commentRows,
-      characterRows,
       loadoutRows,
     ] = await Promise.all([
       this.database.select<WorkspaceRow[]>("SELECT id, name FROM workspaces ORDER BY name"),
@@ -234,13 +351,10 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
         "SELECT id, project_id, name, milestone_order FROM milestones ORDER BY milestone_order",
       ),
       this.database.select<TaskRow[]>(
-        "SELECT id, milestone_id, title, body, status, assignee, skills, blocked, external_ref FROM tasks ORDER BY title",
+        "SELECT id, milestone_id, title, body, status, assignee, skills, blocked, external_ref, source_url FROM tasks ORDER BY title",
       ),
       this.database.select<TaskCommentRow[]>(
         "SELECT id, task_id, body, author, created_at FROM task_comments ORDER BY created_at, id",
-      ),
-      this.database.select<CharacterRow[]>(
-        "SELECT name, job, sprite_id FROM characters WHERE id = 1",
       ),
       this.database.select<LoadoutRow[]>(
         "SELECT project_id, agent_tool, source_tool FROM loadouts",
@@ -261,7 +375,6 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
       const comments = commentsByTaskId.get(task.id);
       return comments?.length ? { ...task, comments } : task;
     });
-    const character = characterRows[0] ? toCharacter(characterRows[0]) : undefined;
     const loadouts = new Map<EntityId, Loadout>(
       loadoutRows.map((row) => [row.project_id, toLoadout(row)]),
     );
@@ -295,7 +408,6 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
           project,
           milestones,
           tasks: tasks.filter((task) => milestoneIds.has(task.milestoneId)),
-          ...(character ? { character } : {}),
           ...(loadouts.has(project.id) ? { loadout: loadouts.get(project.id) } : {}),
         },
       ];
@@ -368,6 +480,43 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
     await this.database.execute("DELETE FROM loadouts WHERE project_id = $1", [projectId]);
   }
 
+  public async listPluginConnections(): Promise<PluginConnection[]> {
+    const rows = await this.database.select<PluginConnectionRow[]>(
+      `SELECT plugin_id, connection_id, label, config, credential_stored, updated_at
+       FROM plugin_connections
+       ORDER BY label, plugin_id, connection_id`,
+    );
+    return rows.map(toPluginConnection);
+  }
+
+  public async savePluginConnection(connection: PluginConnection): Promise<void> {
+    await this.database.execute(
+      `INSERT INTO plugin_connections
+         (plugin_id, connection_id, label, config, credential_stored, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT(plugin_id, connection_id) DO UPDATE SET
+         label = excluded.label,
+         config = excluded.config,
+         credential_stored = excluded.credential_stored,
+         updated_at = excluded.updated_at`,
+      [
+        connection.pluginId,
+        connection.connectionId,
+        connection.label,
+        JSON.stringify(connection.config),
+        connection.credentialStored ? 1 : 0,
+        connection.updatedAt,
+      ],
+    );
+  }
+
+  public async deletePluginConnection(pluginId: string, connectionId: string): Promise<void> {
+    await this.database.execute(
+      "DELETE FROM plugin_connections WHERE plugin_id = $1 AND connection_id = $2",
+      [pluginId, connectionId],
+    );
+  }
+
   public async saveWorkspace(workspace: Workspace): Promise<void> {
     await this.database.execute(
       `INSERT INTO workspaces (id, name) VALUES ($1, $2)
@@ -422,8 +571,8 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
   public async saveTask(task: Task): Promise<void> {
     await this.database.execute(
       `INSERT INTO tasks
-         (id, milestone_id, title, body, status, assignee, skills, blocked, external_ref)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         (id, milestone_id, title, body, status, assignee, skills, blocked, external_ref, source_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT(id) DO UPDATE SET
          milestone_id = excluded.milestone_id,
          title = excluded.title,
@@ -432,7 +581,8 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
          assignee = excluded.assignee,
          skills = excluded.skills,
          blocked = excluded.blocked,
-         external_ref = excluded.external_ref`,
+         external_ref = excluded.external_ref,
+         source_url = excluded.source_url`,
       [
         task.id,
         task.milestoneId,
@@ -443,6 +593,7 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
         JSON.stringify(task.skills),
         task.blocked ? 1 : 0,
         task.externalRef ?? null,
+        task.sourceUrl ?? null,
       ],
     );
 
@@ -463,6 +614,49 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
       "SELECT id, title, completed, created_at FROM inbox_todos ORDER BY created_at",
     );
     return rows.map(toInboxTodo);
+  }
+
+  public async listProjectTodos(): Promise<ProjectTodo[]> {
+    const rows = await this.database.select<ProjectTodoRow[]>(
+      `SELECT
+         t.id AS task_id,
+         t.milestone_id AS task_milestone_id,
+         t.title AS task_title,
+         t.body AS task_body,
+         t.status AS task_status,
+         t.assignee AS task_assignee,
+         t.skills AS task_skills,
+         t.blocked AS task_blocked,
+         t.external_ref AS task_external_ref,
+         t.source_url AS task_source_url,
+         m.id AS milestone_id,
+         m.project_id AS milestone_project_id,
+         m.name AS milestone_name,
+         m.milestone_order AS milestone_order,
+         p.id AS project_id,
+         p.workspace_id AS project_workspace_id,
+         p.name AS project_name,
+         p.repo_path AS project_repo_path,
+         p.skills AS project_skills,
+         w.id AS workspace_id,
+         w.name AS workspace_name
+       FROM tasks t
+       INNER JOIN milestones m ON m.id = t.milestone_id
+       INNER JOIN projects p ON p.id = m.project_id
+       INNER JOIN workspaces w ON w.id = p.workspace_id
+       ORDER BY
+         CASE t.status
+           WHEN 'doing' THEN 0
+           WHEN 'todo' THEN 1
+           WHEN 'review' THEN 2
+           ELSE 3
+         END,
+         p.name,
+         m.milestone_order,
+         t.title,
+         t.id`,
+    );
+    return rows.map(toProjectTodo);
   }
 
   public async saveInboxTodo(todo: InboxTodo): Promise<void> {
