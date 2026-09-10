@@ -111,7 +111,11 @@ pub(super) fn clone_repository(
     match output {
         Ok(status) if status.success() => Ok(result_path),
         failed => {
-            let _ = fs::remove_dir(&destination.0);
+            match fs::remove_dir_all(&destination.0) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("Clone 작업 폴더를 정리하지 못했습니다: {error}. 폴더를 확인한 뒤 다시 시도해 주세요.")),
+            }
             match failed {
                 Err(error) => Err(error),
                 Ok(_) => Err("Git clone에 실패했습니다. 저장소 주소와 접근 권한, 네트워크를 확인해 주세요. 비공개 저장소는 Git 인증 또는 SSH 키 설정이 필요합니다.".to_string()),

@@ -145,3 +145,29 @@ fn reports_failed_clone_without_leaving_an_empty_destination() {
     assert!(result.is_err());
     assert!(!root.path().join("target").exists());
 }
+
+#[test]
+fn removes_partial_clone_when_source_tree_is_missing() {
+    let root = tempfile::tempdir().unwrap();
+    let source = source_repository(root.path());
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD^{tree}"])
+        .current_dir(&source)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let tree = String::from_utf8(output.stdout).unwrap();
+    let (prefix, suffix) = tree.trim().split_at(2);
+    fs::remove_file(
+        Path::new(&source)
+            .join(".git/objects")
+            .join(prefix)
+            .join(suffix),
+    )
+    .unwrap();
+
+    let result = clone_repository(&source, root.path().to_str().unwrap(), "target");
+
+    assert!(result.is_err());
+    assert!(!root.path().join("target").exists());
+}
