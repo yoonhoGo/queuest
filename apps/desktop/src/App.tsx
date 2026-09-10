@@ -87,6 +87,8 @@ import {
   savePluginConnection as saveStoredPluginConnection,
   savePluginCredential,
 } from "./data/plugin";
+import { ProjectCreateForm } from "./components/ProjectCreateForm";
+import { DirectoryField } from "./components/DirectoryField";
 import "./App.css";
 
 const STATUS_COLUMNS: Array<{ status: TaskStatus; label: string; hint: string }> = [
@@ -475,7 +477,7 @@ function App() {
         todoCount={todos?.filter((todo) => !todo.completed).length ?? 0}
         pinned={pinned}
         onTogglePinned={() => void togglePinned()}
-        onOpenProject={openProjectPicker}
+        onOpenProject={() => openProjectPicker()}
       />
       <AppNavigation active={view} onNavigate={(next) => next === "project" ? openProjectPicker() : setView(next)} />
       <main className="main-content" ref={contentRef}>
@@ -2274,106 +2276,6 @@ function WorkspaceEditor({ workspace, submitting, onCancel, onSubmit }: Workspac
   );
 }
 
-interface ProjectCreateFormProps {
-  workspace: Workspace;
-  initialTaskTitle?: string;
-  submitting: boolean;
-  onCancel: () => void;
-  onSubmit: (input: NewProjectInput) => Promise<boolean>;
-}
-
-function ProjectCreateForm({
-  workspace,
-  initialTaskTitle,
-  submitting,
-  onCancel,
-  onSubmit,
-}: ProjectCreateFormProps) {
-  const [name, setName] = useState("");
-  const [firstTaskTitle, setFirstTaskTitle] = useState(initialTaskTitle ?? "");
-  const [repoPath, setRepoPath] = useState("");
-  const [skills, setSkills] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setValidationError("프로젝트 이름을 입력하세요.");
-      return;
-    }
-
-    setValidationError(null);
-    await onSubmit({
-      name: trimmedName,
-      firstTaskTitle: firstTaskTitle.trim() || undefined,
-      repoPath: repoPath.trim() || undefined,
-      skills: parseSkillText(skills),
-    });
-  }
-
-  return (
-    <form className="project-create-form" onSubmit={handleSubmit}>
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">NEW EXPEDITION</p>
-          <h2>새 프로젝트 만들기</h2>
-        </div>
-        <span className="section-note">{workspace.name} · SQLite에 저장</span>
-      </div>
-      <label htmlFor="project-name">프로젝트 이름</label>
-      <input
-        id="project-name"
-        type="text"
-        value={name}
-        autoFocus
-        disabled={submitting}
-        placeholder="예: Queuest"
-        onChange={(event) => {
-          setName(event.target.value);
-          if (validationError) {
-            setValidationError(null);
-          }
-        }}
-      />
-      <label htmlFor="first-task-title">첫 퀘스트 <span>(선택)</span></label>
-      <input
-        id="first-task-title"
-        type="text"
-        value={firstTaskTitle}
-        disabled={submitting}
-        placeholder="인박스의 할 일을 첫 퀘스트로 복사할 수 있습니다"
-        onChange={(event) => setFirstTaskTitle(event.target.value)}
-      />
-      <label htmlFor="new-project-repo-path">작업 폴더 <span>(선택)</span></label>
-      <input
-        id="new-project-repo-path"
-        type="text"
-        value={repoPath}
-        disabled={submitting}
-        placeholder="/Users/me/Projects/queuest"
-        onChange={(event) => setRepoPath(event.target.value)}
-      />
-      <label htmlFor="new-project-skills">프로젝트 스킬 <span>(선택)</span></label>
-      <input
-        id="new-project-skills"
-        type="text"
-        value={skills}
-        disabled={submitting}
-        placeholder="typescript, tauri, rust"
-        onChange={(event) => setSkills(event.target.value)}
-      />
-      {validationError && <p className="validation-note" role="alert">{validationError}</p>}
-      <div className="form-actions">
-        <button className="primary-button" type="submit" disabled={submitting}>
-          {submitting ? "저장 중…" : "프로젝트 만들기"}
-        </button>
-        <button className="secondary-button" type="button" onClick={onCancel} disabled={submitting}>취소</button>
-      </div>
-    </form>
-  );
-}
-
 function ProjectLoadingState() {
   return (
     <section className="state-panel" role="status" aria-live="polite">
@@ -2691,17 +2593,8 @@ function ProjectSettingsPanel({
           }}
         />
       </label>
-      <label>
-        작업 폴더 (`repoPath`)
-        <input
-          type="text"
-          value={repoPath}
-          disabled={submitting}
-          placeholder="/Users/me/Projects/queuest"
-          onChange={(event) => setRepoPath(event.target.value)}
-        />
-        <small className="field-hint">비워두면 AI와 GitHub 기능이 비활성화됩니다.</small>
-      </label>
+      <DirectoryField label="작업 폴더" value={repoPath} disabled={submitting} onChange={setRepoPath} />
+      <small className="field-hint">비워두면 AI와 GitHub 기능이 비활성화됩니다.</small>
       <label>
         프로젝트 스킬
         <input

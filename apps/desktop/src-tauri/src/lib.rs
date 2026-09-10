@@ -1,3 +1,8 @@
+mod project_clone;
+mod project_directory;
+use project_clone::clone_project_repository;
+use project_directory::{choose_project_directory, DirectoryDialogState};
+
 use std::{
     io::Read,
     path::{Path, PathBuf},
@@ -724,7 +729,9 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AgentState::default())
         .manage(WindowState::default())
+        .manage(DirectoryDialogState::default())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -744,7 +751,7 @@ pub fn run() {
                             .lock()
                             .map(|value| *value)
                             .unwrap_or(false);
-                        if !pinned {
+                        if !pinned && !app_handle.state::<DirectoryDialogState>().is_open() {
                             let _ = focus_window.hide();
                         }
                     }
@@ -790,6 +797,8 @@ pub fn run() {
             integrations::github_review_list,
             integrations::jira_issue_list,
             validate_repo_path,
+            choose_project_directory,
+            clone_project_repository,
             set_window_pinned,
             discover_tools,
             discover_inventory,
