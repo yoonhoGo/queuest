@@ -87,7 +87,12 @@ import {
   savePluginConnection as saveStoredPluginConnection,
   savePluginCredential,
 } from "./data/plugin";
+import { AppHeader } from "./components/AppHeader";
+import { CharacterCompletionStats } from "./components/CharacterCompletionStats";
+import { PixelIcon } from "./components/PixelIcon";
 import "./App.css";
+import "./styles/retro-shell.css";
+import "./styles/retro-content.css";
 
 const STATUS_COLUMNS: Array<{ status: TaskStatus; label: string; hint: string }> = [
   { status: "todo", label: "대기", hint: "아직 시작하지 않은 퀘스트" },
@@ -598,11 +603,11 @@ function CharacterHome() {
       <div className="section-heading">
         <div>
           <p className="eyebrow">GLOBAL CHARACTER</p>
-          <h2 id="profile-title" tabIndex={-1}>나의 캐릭터</h2>
+          <h2 id="profile-title" tabIndex={-1}><PixelIcon name="star" />나의 캐릭터</h2>
         </div>
         <span className="sheet-rule">전체 프로젝트</span>
       </div>
-      <p className="page-description">캐릭터는 하나로 유지되고, 경험치와 스킬은 모든 프로젝트의 완료 기록에서 계산됩니다.</p>
+      <p className="page-description">모든 프로젝트에서 쌓은 경험으로 함께 성장해요.</p>
       {error && (
         <div className="action-error" role="alert">
           <span>{error}</span>
@@ -652,7 +657,7 @@ function CharacterHome() {
                 <h3>{character.name}</h3>
                 <span className="job-badge">{JOB_LABEL[character.job]}</span>
               </div>
-              <p>Lv. {progress.level} 원정대원</p>
+              <p className="character-level">Lv. {progress.level}</p>
               <div className="xp-row">
                 <span>XP {progress.experience}</span>
                 <span>다음 레벨까지 {progress.experienceToNextLevel}</span>
@@ -673,7 +678,7 @@ function CharacterHome() {
           <div className="sheet-grid">
             <div className="skill-panel">
               <div className="panel-heading">
-                <h3>스킬</h3>
+                <h3><PixelIcon name="book" />스킬</h3>
                 <span>전체 완료 태스크 기준</span>
               </div>
               <div className="skill-list">
@@ -698,17 +703,10 @@ function CharacterHome() {
               </div>
             </div>
 
-            <div className="character-stats-panel">
-              <div className="panel-heading">
-                <h3>활동 기록</h3>
-                <span>모든 원정</span>
-              </div>
-              <dl className="character-stat-list">
-                <div><dt>프로젝트</dt><dd>{progress.projectCount}</dd></div>
-                <div><dt>진행 중</dt><dd>{progress.activeTaskCount}</dd></div>
-                <div><dt>완료 퀘스트</dt><dd>{progress.completedTaskCount}</dd></div>
-              </dl>
-            </div>
+            <CharacterCompletionStats
+              completedTaskCount={progress.completedTaskCount}
+              completedMilestoneCount={progress.completedMilestoneCount}
+            />
           </div>
 
           <InventoryPanel />
@@ -949,8 +947,7 @@ interface GlobalCharacterProgress {
   levelProgress: number;
   experienceToNextLevel: number;
   completedTaskCount: number;
-  activeTaskCount: number;
-  projectCount: number;
+  readonly completedMilestoneCount: number;
   skills: ReturnType<typeof calculateSkillSummaries>;
   projects: Array<{
     project: Project;
@@ -993,8 +990,10 @@ function calculateGlobalCharacterProgress(
       (total, graph) => total + graph.tasks.filter((task) => task.status === "done").length,
       0,
     ),
-    activeTaskCount: graphs.reduce((total, graph) => total + activeTaskCount(graph.tasks), 0),
-    projectCount: graphs.length,
+    completedMilestoneCount: graphs.reduce(
+      (total, graph) => total + graph.milestones.filter((milestone) => isMilestoneComplete(milestone.id, graph.tasks)).length,
+      0,
+    ),
     skills: [...skillsByName.values()].sort((left, right) => left.name.localeCompare(right.name)),
     projects,
   };
@@ -1484,47 +1483,6 @@ function skillText(skills: string[]): string {
   return skills.join(", ");
 }
 
-interface AppHeaderProps {
-  todoCount: number;
-  pinned: boolean;
-  onTogglePinned: () => void;
-  onOpenProject: () => void;
-}
-
-function AppHeader({ todoCount, pinned, onTogglePinned, onOpenProject }: AppHeaderProps) {
-  return (
-    <header className="topbar">
-      <div className="brand-lockup">
-        <div className="brand-mark" aria-hidden="true">
-          Q
-        </div>
-        <div>
-          <p className="eyebrow">TODO-FIRST QUEST BOARD</p>
-          <h1>Queuest</h1>
-        </div>
-      </div>
-      <div className="topbar-actions">
-        <span className="active-counter" title="완료하지 않은 인박스 할 일 수">
-          <span aria-hidden="true">◆</span> {todoCount}
-        </span>
-        <button
-          className={`icon-button pin-button ${pinned ? "active" : ""}`}
-          type="button"
-          aria-label={pinned ? "팝오버 고정 해제" : "팝오버 고정"}
-          aria-pressed={pinned}
-          title={pinned ? "팝오버 고정 해제" : "포커스를 잃어도 팝오버 유지"}
-          onClick={onTogglePinned}
-        >
-          {pinned ? "고정됨" : "고정"}
-        </button>
-        <button className="topbar-project-button" type="button" onClick={onOpenProject}>
-          프로젝트
-        </button>
-      </div>
-    </header>
-  );
-}
-
 function LoadingState() {
   return (
     <section className="state-panel" role="status" aria-live="polite">
@@ -1591,6 +1549,8 @@ function TodoInbox({
   const [editingTitle, setEditingTitle] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  const completedCount = todos.filter((todo) => todo.completed).length;
+
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const title = draftTitle.trim();
@@ -1635,14 +1595,21 @@ function TodoInbox({
       <section className="inbox-intro" aria-labelledby="inbox-title">
         <div>
           <p className="eyebrow">PERSONAL INBOX</p>
-          <h2 id="inbox-title" ref={headingRef} tabIndex={-1}>먼저, 할 일을 모아두세요</h2>
+          <h2 id="inbox-title" ref={headingRef} tabIndex={-1}><PixelIcon name="clipboard" />오늘의 퀘스트</h2>
           <p className="inbox-lede">
-            프로젝트를 고르기 전에도 생각을 놓치지 않도록 기록할 수 있습니다.
+            한 걸음씩, 오늘도 레벨 업!
           </p>
         </div>
         <span className="workspace-chip">로컬 저장소</span>
       </section>
 
+      {todos.length > 0 && <div className="inbox-progress">
+        <div className="progress-track" role="progressbar" aria-label="인박스 완료율"
+          aria-valuemin={0} aria-valuemax={todos.length} aria-valuenow={completedCount}>
+          <span style={{ width: `${completedCount / todos.length * 100}%` }} />
+        </div>
+        <span>{completedCount} / {todos.length} 완료</span>
+      </div>}
       <section className="todo-compose" aria-labelledby="compose-title">
         <div className="section-heading">
           <div>
@@ -1657,7 +1624,7 @@ function TodoInbox({
             id="new-todo-title"
             type="text"
             value={draftTitle}
-            placeholder="예: 다음 원정 아이디어 적기"
+            placeholder="새 퀘스트 추가"
             onChange={(event) => {
               setDraftTitle(event.target.value);
               if (validationError) {
@@ -2139,7 +2106,7 @@ function ProjectPicker({
                     type="button"
                     onClick={() => onSelectProject(graph)}
                   >
-                    <span className="project-choice-icon" aria-hidden="true">✦</span>
+                    <span className="project-choice-icon" aria-hidden="true"><PixelIcon name="flag" /></span>
                     <span className="project-list-copy">
                       <span className="eyebrow">{graph.workspace.name}</span>
                       <strong>{graph.project.name}</strong>
@@ -3552,43 +3519,10 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand-lockup">
-          <div className="brand-mark" aria-hidden="true">
-            Q
-          </div>
-          <div>
-            <p className="eyebrow">MENU BAR QUEST BOARD</p>
-            <h1>Queuest</h1>
-          </div>
-        </div>
-        <div className="topbar-actions">
-          <span className="active-counter" title="현재 진행 중인 태스크 수">
-            <span aria-hidden="true">◆</span> {activeCount}
-          </span>
-          <button
-            className={`icon-button pin-button ${pinned ? "active" : ""}`}
-            type="button"
-            aria-label={pinned ? "팝오버 고정 해제" : "팝오버 고정"}
-            aria-pressed={pinned}
-            title={pinned ? "팝오버 고정 해제" : "포커스를 잃어도 팝오버 유지"}
-            onClick={onTogglePinned}
-          >
-            {pinned ? "고정됨" : "고정"}
-          </button>
-          <button className="topbar-project-button" type="button" onClick={onBackToInbox}>
-            인박스
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="프로젝트 설정"
-            onClick={() => { setSection("project"); setShowProjectSettings(true); }}
-          >
-            ⚙
-          </button>
-        </div>
-      </header>
+      <AppHeader todoCount={activeCount} countLabel="현재 진행 중인 태스크 수"
+        pinned={pinned} onTogglePinned={onTogglePinned}
+        onOpenProject={onBackToInbox} projectLabel="인박스"
+        onOpenSettings={() => { setSection("project"); setShowProjectSettings(true); }} />
 
       <AppNavigation
         active={section}
@@ -3623,9 +3557,7 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
 
         <section className="project-banner" aria-labelledby="project-title">
           <div className="project-heading">
-            <div className="project-token" aria-hidden="true">
-              ✦
-            </div>
+            <div className="project-token" aria-hidden="true"><PixelIcon name="flag" /></div>
             <div>
               <p className="eyebrow">SELECTED EXPEDITION</p>
               <h2 id="project-title">{project.name}</h2>
