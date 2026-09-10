@@ -23,3 +23,7 @@ vite.config.d.ts
 # Tauri generated files
 apps/*/src-tauri/gen/
 apps/*/src-tauri/target/
+
+# Approved design reference, maintained as source (not a generated app build)
+!previews/retro/dist/
+!previews/retro/dist/**
