@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   advanceTaskStatus,
+  createQuestContext,
+  getTrackedQuests,
   canTransitionTaskStatus,
   calculateExperience,
   calculateLevel,
@@ -15,7 +17,24 @@ import {
   retreatTaskStatus,
   transitionTaskStatus,
 } from "./index.ts";
-import type { Milestone, Task } from "./index.ts";
+import type { Milestone, Task, ProjectTodo } from "./index.ts";
+
+test("quest tracking excludes completed work and external links do not multiply XP", () => {
+  const task: Task = { id: "q", milestoneId: "m", title: "출시", body: "", status: "review",
+    assignee: "human", skills: [], blocked: false,
+    quest: { ...createQuestContext(), role: "main", tracked: true } };
+  const item: ProjectTodo = { task, workspace: { id: "w", name: "개인" },
+    project: { id: "p", workspaceId: "w", name: "베타", skills: [] },
+    milestone: { id: "m", projectId: "p", name: "출시", order: 1 } };
+  assert.deepEqual(getTrackedQuests([item]), [item]);
+  assert.deepEqual(getTrackedQuests([{ ...item, task: { ...task, status: "done" } }]), []);
+  const done: Task = { ...task, status: "done" };
+  const linked: Task = { ...done, quest: { ...task.quest!, links: [
+    { kind: "pr", url: "https://github.com/example/repo/pull/1" },
+    { kind: "jira", url: "https://example.atlassian.net/browse/Q-1" },
+  ] } };
+  assert.equal(calculateExperience([], [done]), calculateExperience([], [linked]));
+});
 
 const firstMilestone: Milestone = {
   id: "milestone-1",
@@ -98,4 +117,19 @@ test("level progress uses the same quadratic thresholds as level calculation", (
   assert.equal(experienceToNextLevel(100), 300);
   assert.equal(calculateLevelProgress(100), 0);
   assert.equal(calculateLevelProgress(250), 50);
+});
+
+test("pending backlog quests require acceptance and do not affect active progress or XP", () => {
+  const pending: Task = { ...task("todo"), id: "pending", quest: { ...createQuestContext(), acceptance: "pending", tracked: true } };
+  assert.equal(canTransitionTaskStatus(pending, "doing"), false);
+  assert.equal(canTransitionTaskStatus(pending, "review"), false);
+  assert.equal(canTransitionTaskStatus(pending, "done", { confirmedByHuman: true }), false);
+  assert.throws(() => transitionTaskStatus(pending, "doing"), /수락/);
+  const accepted = { ...pending, quest: { ...pending.quest!, acceptance: "accepted" as const } };
+  assert.equal(transitionTaskStatus(accepted, "doing").status, "doing");
+  assert.equal(calculateProjectStatus([firstMilestone], [pending]), "not-started");
+  assert.equal(calculateMilestoneProgress(firstMilestone.id, [task("done"), pending]), 100);
+  assert.equal(calculateExperience([firstMilestone], [task("done"), pending]), calculateExperience([firstMilestone], [task("done")]));
+  assert.equal(calculateExperience([firstMilestone], [{ ...pending, status: "done" }]), 0);
+  assert.deepEqual(getTrackedQuests([{ task: pending } as ProjectTodo]), []);
 });

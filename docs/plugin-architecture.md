@@ -61,8 +61,10 @@ client와 Swift helper 아래에 `@queuest/plugin-apple-calendar`·
 `@queuest/plugin-apple-reminders`를 두며, native process 수명주기와 deterministic no-TCC
 process E2E까지 연결했다. GitHub는 프로젝트 보드의 read-only import UI까지 연결했고,
 앱의 플러그인 탭에는 내장 connector용 연결 프로필 편집 화면과 macOS Keychain 저장 경계를
-연결했다. 일반 사용자 플러그인의 승인·설정 자동 생성 UI와 Jira·Calendar·EventKit의
-항목 import 화면은 아직 남아 있다.
+연결했다. Jira는 별도 native Host HTTP adapter를 통해 스테이지 가져오기와 백로그 미수락 저장을
+지원한다. 이 UI 경로는 조회별 명시적 허용을 사용하며 process PermissionBroker의 영구
+승인과는 별개다. 일반 사용자 플러그인의 승인·설정 자동 생성 UI와 Calendar·EventKit
+항목 import 화면은 아직 남아 있다. 사용법과 경계는 README의 가져오기 절을 참고한다.
 
 별도 프로세스는 격리의 경계이지 완전한 보안 샌드박스가 아니다. Connector 플러그인은
 manifest에 선언하고 승인받은 네트워크·secret 권한과 Credential Store adapter를 통해서만
@@ -500,8 +502,9 @@ rate-limit, HTTP, malformed response, network failure는 token/API response를 �
 `JiraPluginError` typed error와 안전한 `connection.status` state로 변환한다. 대응 코드는
 `CREDENTIAL_NOT_FOUND`, `MALFORMED_CREDENTIAL`, `AUTH_ERROR`, `NOT_FOUND`, `RATE_LIMITED`,
 `HTTP_ERROR`, `MALFORMED_RESPONSE`, `NETWORK_ERROR`이며, 오류 message·stderr·로그·protocol
-응답에 token이나 원격 API response를 복제하지 않는다. UI import/local
-Task 저장과 `externalRef` deduplication, Jira provider write, OAuth/3LO, self-hosted
+응답에 token이나 원격 API response를 복제하지 않는다. UI import/local Task 저장과
+프로젝트 내 `externalRef` 중복 방지는 별도 native Host adapter로 연결했다. 이 process
+connector 자체는 프로젝트 검색만 제공한다. Jira provider write, OAuth/3LO, self-hosted
 Jira/Data Center는 후속 범위다.
 
 Google Calendar Connector의 read-only scope는 기간·calendar ID 기반 일정 목록과
@@ -566,8 +569,9 @@ AI 실행, 로컬 명령, 파일 변환처럼 강한 권한이 필요한 플러�
 
 외부 서비스에서 Queuest로 가져오는 단방향 흐름을 먼저 유지한다. GitHub, Jira, Google
 Calendar와 Apple EventKit connector의 조회·변환은 완료했고 내장 connector 연결 설정도
-플러그인 탭에 연결했다. UI import와 local
-Task/CalendarEvent 저장, `externalRef` deduplication은 아직 구현하지 않았다. 외부 서비스에
+플러그인 탭에 연결했다. GitHub와 Jira는 별도 native Host 경로에서 UI 가져오기·local Task
+저장·프로젝트 내 중복 방지를 제공한다. Calendar·EventKit의 UI import와 local
+Task/CalendarEvent 저장, `externalRef` deduplication은 후속 범위다. 외부 서비스에
 수정 내용을 되돌려 쓰는 provider write 기능은 각 capability가 안정화된 뒤 별도로 설계하며,
 Google Calendar OAuth 동의·token refresh·credential provisioning, Apple EventKit UI/TCC
 설정과 write capability, Jira OAuth/3LO·self-hosted Jira/Data Center 지원도 후속 Host/UI

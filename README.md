@@ -2,6 +2,10 @@
 
 > Life is a queue of quests.
 
+게임 요소와 외부 연동의 의미는 [퀘스트 시스템](./docs/quest-system.md)에 정의합니다.
+퀘스트 편집에서 목표·이유·다음 행동, 메인/서브·반복·도전 분류, 외부 링크와 수행 시간을
+저장하고 할 일 화면에서 미완료 퀘스트를 추적할 수 있습니다.
+
 개인 프로젝트를 원정(프로젝트) → 스테이지(마일스톤) → 퀘스트(태스크)로 관리하는 macOS 메뉴바 앱입니다.
 
 현재 레포는 `Tauri 2 + React + TypeScript + SQLite` 기반의 로컬 MVP입니다. 앱은 SQLite 인박스와 프로젝트 할 일 목록을 먼저 열고, 프로젝트 보드나 전역 캐릭터 탭에서 필요할 때만 전체 워크스페이스·프로젝트·마일스톤·태스크 그래프를 불러옵니다. 워크스페이스와 프로젝트·마일스톤·태스크 CRUD, 보드 상태 이동은 로컬 SQLite에 즉시 저장되고, 태스크 댓글·전역 캐릭터·프로젝트 장비 설정도 재실행 시 복원할 수 있는 저장 경계를 갖습니다. 메뉴바 팝오버는 포커스와 핀 상태를 반영하며 도구 상태를 확인합니다. 외부 연동은 `@queuest/plugin-contracts`의 버전 있는 프로토콜과 [플러그인 아키텍처](./docs/plugin-architecture.md)를 기준으로 확장합니다.
@@ -13,7 +17,7 @@ macOS 메뉴바에서 Queuest 아이콘을 클릭하면 아이콘 바로 아래�
 - 상단의 **할 일 / 프로젝트 / 캐릭터 / 플러그인** 메뉴는 스크롤해도 유지됩니다.
 - 캐릭터 이름과 직업은 **캐릭터** 탭에서 전역으로 편집합니다. 경험치·레벨·스킬은 모든 프로젝트의 완료 기록을 합산하고, 프로젝트별 장비 설정은 프로젝트 설정에 남습니다.
 - **할 일** 탭에서 개인 인박스와 모든 프로젝트의 퀘스트를 함께 확인할 수 있습니다. 프로젝트 퀘스트에서 프로젝트 보드와 외부 원본 링크로 바로 이동합니다.
-- 플러그인 화면에서 로컬 도구의 설치·인증 상태를 다시 확인할 수 있습니다. GitHub는 프로젝트의 작업 폴더와 `gh` 인증을 사용해 이슈를 선택한 스테이지의 퀘스트로 가져올 수 있고, Jira·Calendar·EventKit은 연결 설정 UI를 준비 중입니다.
+- 플러그인 화면에서 로컬 도구의 설치·인증 상태를 다시 확인할 수 있습니다. GitHub는 프로젝트의 작업 폴더와 `gh` 인증으로 이슈를 가져오며, 할 일 화면에서 나에게 리뷰 요청된 PR을 조회할 수 있습니다. Jira는 저장된 연결로 프로젝트 티켓과 보드 백로그를 가져옵니다. Calendar·EventKit 항목 가져오기는 후속 범위입니다.
 - 420px 창에서는 퀘스트 상태 보드를 세로로 표시합니다. 고정 버튼을 누르면 다른 앱으로 이동해도 창이 유지됩니다.
 
 아래 이미지는 초기 디자인 미리보기로, 현재 화면 전환 메뉴와는 차이가 있습니다.
@@ -99,9 +103,8 @@ npm run check
   category·browse URL을 보존합니다. `health.check`는 초기화·권한만 확인하고 credential/API를
   읽지 않으며, credential/auth/not-found/rate-limit/HTTP/malformed/network 실패는 token을
   노출하지 않는 typed error와 connection state로 전달합니다. 연결 설정은 플러그인 탭에서
-  저장하지만, Jira UI import와 local Task 저장,
-  `externalRef` deduplication, provider write, OAuth/3LO, self-hosted Jira/Data Center 지원은
-  아직 연결하지 않습니다.
+  저장합니다. 데스크톱 UI 가져오기는 아래의 별도 native Host adapter를 사용합니다.
+  provider write, OAuth/3LO, self-hosted Jira/Data Center는 지원하지 않습니다.
 - Google Calendar connector는 `com.queuest.calendar` plugin namespace와 `connectionId`를
   조합한 Credential Store 항목을 읽고, 다음 JSON credential의 `accessToken`만 사용합니다.
 
@@ -159,3 +162,40 @@ npm run check
   TCC 요청 안내, 일정/미리알림 UI, CalendarEvent·Task 저장과 중복 제거, 외부 데이터
   생성·수정·삭제(write)는 아직 Host/UI 범위에 연결하지 않았습니다.
 - 커밋·푸시·클라우드 동기화·팀 공유는 이 초기화 범위에 포함하지 않습니다.
+
+## GitHub PR과 Jira 가져오기
+
+- **할 일 → 확인할 GitHub PR → PR 조회**: `gh`에 로그인한 계정에 리뷰 요청된 열린 PR을
+  모든 저장소에서 최근 업데이트 순 최대 100개 표시합니다. PR 열기는 원본으로 이동하며
+  로컬 퀘스트나 Jira를 변경하지 않습니다. GitHub 연결 프로필의 PAT가 아닌 `gh` 인증을 씁니다.
+- **플러그인 → Jira 연결**에 사이트 URL·이메일·API token·프로젝트 키를 저장합니다.
+  백로그 조회에는 보드 URL의 `boards/123` 또는 `rapidView=123`에 있는 숫자를
+  **백로그 보드 ID**에 추가합니다. 사이트나 이메일을 바꿀 때는 API token도 다시 저장하세요.
+- **원정 → 스테이지 → Jira 가져오기**에서 연결·범위·저장할 스테이지를 선택하고
+  **접근 허용하고 조회**를 누릅니다. 새 티켓을 선택한 뒤 가져옵니다. 한 페이지는 최대
+  100개이며 **다음 페이지**로 이어서 조회합니다. 조회된 티켓만 선택·저장됩니다.
+- **보드 백로그 → 미수락 퀘스트** 범위는 보드의 실제 백로그를 프로젝트 키로 제한해서
+  조회합니다. 보드 ID가 설정되어 있으면 프로젝트 티켓 범위에서도 해당 보드의 백로그를
+  확인해 미수락으로 저장합니다. 보드 ID가 없으면 프로젝트 범위에서는 백로그 여부를
+  구분하지 않습니다. 이미 가져온 티켓은 덮어쓰지 않습니다.
+- 백로그 퀘스트는 보드의 **미수락 퀘스트 → 수락** 후 대기 상태로 이동합니다.
+  수락 전에는 추적·진행률·XP 계산에서 제외하고 상태 이동을 막습니다.
+  수락 여부는 `Task.quest.acceptance`로 SQLite `quest_context`에 저장하며,
+  이 필드가 없는 기존 작업은 수락된 작업으로 취급합니다.
+- 일반 Jira 티켓은 시작 전 → 대기, 진행 중 → 진행 중, 완료 → 검토 대기로 매핑합니다.
+  완료는 기존 사람의 확인 절차를 따릅니다. 동일 프로젝트 내 전체 스테이지에서
+  `jira:<tenant>.atlassian.net/<issueKey>`로 중복을 막습니다. 다른 프로젝트 간 병합이나
+  주기적 동기화, 기존 티켓 상태 갱신은 수행하지 않습니다.
+
+데스크톱의 Jira 경로는 `apps/desktop/src-tauri/src/integrations.rs`의 native HTTP adapter입니다.
+Node process plugin을 실행하거나 PermissionBroker의 영구 승인 저장소를 사용하지 않습니다.
+사용자의 조회 버튼으로 해당 조회의 Keychain·사이트 접근을 허용하며, Host는 허용 여부와
+입력을 검사한 뒤 Keychain에 접근합니다. 저장된 credential의 사이트·이메일과 화면의 연결
+설정이 일치해야 조회합니다. HTTPS Atlassian Cloud origin, 고정 API 경로, 리다이렉트 금지,
+30초 요청 제한과 8 MiB 응답 제한을 적용하고, 토큰·원격 오류 본문을 화면에 반환하지 않습니다.
+프로젝트 검색은 `/rest/api/3/search/jql`, 백로그는
+`/rest/software/1.0/board/{boardId}/backlog`를 사용합니다. 기존 TypeScript process connector와
+그 권한 모델은 그대로 유지합니다.
+
+API 기준: [GitHub CLI PR 검색](https://cli.github.com/manual/gh_search_prs),
+[Jira Cloud 보드 백로그](https://developer.atlassian.com/cloud/jira/software/rest/api-group-board/).

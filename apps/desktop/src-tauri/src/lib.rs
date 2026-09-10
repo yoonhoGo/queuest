@@ -1,11 +1,13 @@
 use std::{
     io::Read,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
+
+mod integrations;
 
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "macos"))]
@@ -64,6 +66,21 @@ struct ToolDiscovery {
     gh: ToolInfo,
     jj: ToolInfo,
 }
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+struct InstalledApp {
+    name: String,
+    path: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ToolInventory {
+    tools: ToolDiscovery,
+    apps: Vec<InstalledApp>,
+}
+
+// Keep a pathological /Applications from flooding the webview.
+const MAX_INSTALLED_APPS: usize = 500;
 
 const KEYCHAIN_NAMESPACE: &str = "com.yoonhogo.queuest.credentials";
 
@@ -299,7 +316,7 @@ async fn plugin_credential_set(
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "macos")]
         {
-            return set_keychain_credential(&plugin_id, &connection_id, &value);
+            set_keychain_credential(&plugin_id, &connection_id, &value)
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -316,7 +333,7 @@ async fn plugin_credential_delete(plugin_id: String, connection_id: String) -> R
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "macos")]
         {
-            return delete_keychain_credential(&plugin_id, &connection_id);
+            delete_keychain_credential(&plugin_id, &connection_id)
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -358,15 +375,192 @@ fn discover_tool(id: &str, check_authentication: bool) -> ToolInfo {
     }
 }
 
-#[tauri::command]
-async fn discover_tools() -> Result<ToolDiscovery, String> {
-    tauri::async_runtime::spawn_blocking(|| ToolDiscovery {
+fn discover_all_tools() -> ToolDiscovery {
+    ToolDiscovery {
         claude: discover_tool("claude", false),
         gh: discover_tool("gh", true),
         jj: discover_tool("jj", false),
+    }
+}
+
+/// Keeps only `*.app` bundles, strips the extension for the display name,
+/// sorts case-insensitively by name (then path), dedupes and caps the list.
+fn normalize_installed_apps(candidates: impl IntoIterator<Item = PathBuf>) -> Vec<InstalledApp> {
+    let mut apps: Vec<InstalledApp> = candidates
+        .into_iter()
+        .filter(|path| path.extension().is_some_and(|ext| ext == "app"))
+        .filter_map(|path| {
+            let name = path.file_stem()?.to_str()?.trim().to_string();
+            if name.is_empty() || name.starts_with('.') {
+                return None;
+            }
+            Some(InstalledApp {
+                name,
+                path: path.to_str()?.to_string(),
+            })
+        })
+        .collect();
+    apps.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.path.cmp(&b.path))
+    });
+    apps.dedup_by(|a, b| a.path == b.path);
+    apps.truncate(MAX_INSTALLED_APPS);
+    apps
+}
+
+#[cfg(target_os = "macos")]
+fn list_installed_apps() -> Vec<InstalledApp> {
+    let mut roots = vec![
+        PathBuf::from("/Applications"),
+        PathBuf::from("/System/Applications"),
+    ];
+    if let Some(home) = std::env::var_os("HOME") {
+        roots.push(PathBuf::from(home).join("Applications"));
+    }
+    // Scan one level per root only; app bundles are directories, never descend into them.
+    let candidates = roots
+        .into_iter()
+        .filter_map(|root| std::fs::read_dir(root).ok())
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir());
+    normalize_installed_apps(candidates)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn list_installed_apps() -> Vec<InstalledApp> {
+    Vec::new()
+}
+
+// Requested icon edge in points; AppKit picks the nearest larger representation.
+const APP_ICON_SIZE: f64 = 64.0;
+
+/// Finder icon for an `.app` bundle as a PNG data URL. `None` when the bundle
+/// is missing or AppKit cannot produce a bitmap; the caller falls back to text.
+#[cfg(target_os = "macos")]
+fn app_icon_data_url(path: &str) -> Option<String> {
+    use objc2::AnyThread;
+    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSWorkspace};
+    use objc2_foundation::{
+        NSDataBase64EncodingOptions, NSDictionary, NSPoint, NSRect, NSSize, NSString,
+    };
+
+    let bundle = std::path::Path::new(path);
+    if bundle.extension().is_none_or(|ext| ext != "app") || !bundle.is_dir() {
+        return None;
+    }
+    let image = NSWorkspace::sharedWorkspace().iconForFile(&NSString::from_str(path));
+    let mut rect = NSRect::new(
+        NSPoint::new(0.0, 0.0),
+        NSSize::new(APP_ICON_SIZE, APP_ICON_SIZE),
+    );
+    // SAFETY: `rect` outlives the call; no context/hints are passed.
+    let cg_image = unsafe { image.CGImageForProposedRect_context_hints(&mut rect, None, None) }?;
+    let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg_image);
+    // SAFETY: empty, correctly typed property dictionary.
+    let png = unsafe {
+        rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
+    }?;
+    let base64 = png.base64EncodedStringWithOptions(NSDataBase64EncodingOptions::empty());
+    Some(format!("data:image/png;base64,{base64}"))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn app_icon_data_url(_path: &str) -> Option<String> {
+    None
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod app_icon_tests {
+    use super::*;
+
+    #[test]
+    fn renders_system_app_icon_as_png_data_url() {
+        let url = app_icon_data_url("/System/Applications/Calendar.app").expect("icon");
+        assert!(url.starts_with("data:image/png;base64,iVBORw0KGgo"));
+        assert!(url.len() > 1_000);
+    }
+
+    #[test]
+    fn falls_back_to_none_for_non_app_paths() {
+        assert_eq!(app_icon_data_url("/System/Applications/Nope.app"), None);
+        assert_eq!(app_icon_data_url("/etc/hosts"), None);
+    }
+}
+
+#[tauri::command]
+async fn discover_tools() -> Result<ToolDiscovery, String> {
+    tauri::async_runtime::spawn_blocking(discover_all_tools)
+        .await
+        .map_err(|error| format!("도구를 확인하지 못했습니다: {error}"))
+}
+
+#[tauri::command]
+async fn app_icon(path: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || app_icon_data_url(&path))
+        .await
+        .map_err(|error| format!("앱 아이콘을 불러오지 못했습니다: {error}"))
+}
+
+#[tauri::command]
+async fn discover_inventory() -> Result<ToolInventory, String> {
+    tauri::async_runtime::spawn_blocking(|| ToolInventory {
+        tools: discover_all_tools(),
+        apps: list_installed_apps(),
     })
     .await
-    .map_err(|error| format!("도구를 확인하지 못했습니다: {error}"))
+    .map_err(|error| format!("도구와 앱 목록을 확인하지 못했습니다: {error}"))
+}
+
+#[cfg(test)]
+mod installed_app_tests {
+    use super::*;
+
+    fn paths(items: &[&str]) -> Vec<PathBuf> {
+        items.iter().map(PathBuf::from).collect()
+    }
+
+    #[test]
+    fn keeps_only_app_bundles_and_strips_extension() {
+        let apps = normalize_installed_apps(paths(&[
+            "/Applications/Safari.app",
+            "/Applications/Utilities",
+            "/Applications/.DS_Store",
+            "/Applications/notes.txt",
+            "/Applications/.Hidden.app",
+        ]));
+        assert_eq!(
+            apps,
+            vec![InstalledApp {
+                name: "Safari".into(),
+                path: "/Applications/Safari.app".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn sorts_case_insensitively_and_dedupes_by_path() {
+        let apps = normalize_installed_apps(paths(&[
+            "/Applications/zoom.us.app",
+            "/System/Applications/Calendar.app",
+            "/Applications/Xcode.app",
+            "/Applications/Xcode.app",
+        ]));
+        let names: Vec<&str> = apps.iter().map(|app| app.name.as_str()).collect();
+        assert_eq!(names, vec!["Calendar", "Xcode", "zoom.us"]);
+    }
+
+    #[test]
+    fn caps_list_size() {
+        let many: Vec<PathBuf> = (0..MAX_INSTALLED_APPS + 50)
+            .map(|index| PathBuf::from(format!("/Applications/App{index:04}.app")))
+            .collect();
+        assert_eq!(normalize_installed_apps(many).len(), MAX_INSTALLED_APPS);
+    }
 }
 
 fn wait_for_agent(child: Arc<Mutex<Child>>) -> Result<AgentRunResult, String> {
@@ -574,14 +768,16 @@ pub fn run() {
                     "quit" => app.exit(0),
                     _ => {}
                 })
-                .on_tray_icon_event(|tray, event| match event {
-                    TrayIconEvent::Click {
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
                         rect,
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
-                    } => toggle_main_window(&tray.app_handle(), Some(rect)),
-                    _ => {}
+                    } = event
+                    {
+                        toggle_main_window(tray.app_handle(), Some(rect));
+                    }
                 })
                 .build(app)?;
 
@@ -591,9 +787,13 @@ pub fn run() {
             run_agent,
             cancel_agent,
             github_issue_list,
+            integrations::github_review_list,
+            integrations::jira_issue_list,
             validate_repo_path,
             set_window_pinned,
             discover_tools,
+            discover_inventory,
+            app_icon,
             plugin_credential_set,
             plugin_credential_delete
         ])

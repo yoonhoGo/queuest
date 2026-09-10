@@ -52,6 +52,31 @@ export interface TaskComment {
   createdAt: string;
 }
 
+/** Provider-independent meaning; external records describe one local quest. */
+export interface QuestContext {
+  /** Missing means accepted for existing quests. */
+  acceptance?: "pending" | "accepted";
+  goal: string;
+  reason: string;
+  nextAction: string;
+  role: "main" | "side";
+  cadence: "once" | "daily" | "weekly";
+  challenge: "normal" | "boss" | "raid" | "event";
+  tracked: boolean;
+  successCriteria: string;
+  scheduledAt: string;
+  links: Array<{ kind: "jira" | "issue" | "pr" | "event" | "reminder"; url: string }>;
+}
+
+export function createQuestContext(): QuestContext {
+  return { goal: "", reason: "", nextAction: "", role: "side", cadence: "once",
+    challenge: "normal", tracked: false, successCriteria: "", scheduledAt: "", links: [] };
+}
+
+export function getTrackedQuests(items: ProjectTodo[]): ProjectTodo[] {
+  return items.filter(({ task }) => task.quest?.acceptance !== "pending" && task.quest?.tracked && task.status !== "done");
+}
+
 export interface Task {
   id: EntityId;
   milestoneId: EntityId;
@@ -63,6 +88,7 @@ export interface Task {
   blocked: boolean;
   externalRef?: string;
   sourceUrl?: string;
+  quest?: QuestContext;
   comments?: TaskComment[];
 }
 
@@ -126,7 +152,7 @@ export interface TaskStatusTransitionOptions {
 const STATUS_ORDER: readonly TaskStatus[] = TASK_STATUSES;
 
 export function getMilestoneTasks(milestoneId: EntityId, tasks: Task[]): Task[] {
-  return tasks.filter((task) => task.milestoneId === milestoneId);
+  return tasks.filter((task) => task.quest?.acceptance !== "pending" && task.milestoneId === milestoneId);
 }
 
 export function isMilestoneComplete(milestoneId: EntityId, tasks: Task[]): boolean {
@@ -163,7 +189,7 @@ export function calculateMilestoneProgress(milestoneId: EntityId, tasks: Task[])
 
 export function calculateProjectProgress(milestones: Milestone[], tasks: Task[]): number {
   const milestoneIds = new Set(milestones.map((milestone) => milestone.id));
-  const projectTasks = tasks.filter((task) => milestoneIds.has(task.milestoneId));
+  const projectTasks = tasks.filter((task) => task.quest?.acceptance !== "pending" && milestoneIds.has(task.milestoneId));
 
   if (projectTasks.length === 0) {
     return 0;
@@ -178,7 +204,7 @@ export function calculateProjectStatus(
   tasks: Task[],
 ): ProjectStatus {
   const projectTasks = tasks.filter((task) =>
-    milestones.some((milestone) => milestone.id === task.milestoneId),
+    task.quest?.acceptance !== "pending" && milestones.some((milestone) => milestone.id === task.milestoneId),
   );
 
   if (projectTasks.length === 0) {
@@ -192,12 +218,13 @@ export function calculateExperience(
   milestones: Milestone[],
   tasks: Task[],
 ): number {
-  const doneTasks = tasks.filter((task) => task.status === "done");
+  const acceptedTasks = tasks.filter((task) => task.quest?.acceptance !== "pending");
+  const doneTasks = acceptedTasks.filter((task) => task.status === "done");
   const completedMilestones = milestones.filter((milestone) =>
     isMilestoneComplete(milestone.id, tasks),
   );
   const projectComplete =
-    tasks.length > 0 && tasks.every((task) => task.status === "done");
+    acceptedTasks.length > 0 && acceptedTasks.every((task) => task.status === "done");
 
   return doneTasks.length * 10 + completedMilestones.length * 50 + (projectComplete ? 200 : 0);
 }
@@ -242,7 +269,7 @@ export function calculateSkillSummaries(
   character: Character,
 ): SkillSummary[] {
   const projectMilestoneIds = new Set(milestones.map((milestone) => milestone.id));
-  const projectTasks = tasks.filter((task) => projectMilestoneIds.has(task.milestoneId));
+  const projectTasks = tasks.filter((task) => task.quest?.acceptance !== "pending" && projectMilestoneIds.has(task.milestoneId));
   const skillNames = new Set([
     ...project.skills,
     ...projectTasks.flatMap((task) => effectiveTaskSkills(task, project)),
@@ -266,7 +293,7 @@ export function calculateSkillSummaries(
 }
 
 export function activeTaskCount(tasks: Task[]): number {
-  return tasks.filter((task) => task.status === "doing").length;
+  return tasks.filter((task) => task.quest?.acceptance !== "pending" && task.status === "doing").length;
 }
 
 export function advanceTaskStatus(status: TaskStatus): TaskStatus {
@@ -284,6 +311,9 @@ export function canTransitionTaskStatus(
   nextStatus: TaskStatus,
   options: TaskStatusTransitionOptions = {},
 ): boolean {
+  if (task.quest?.acceptance === "pending" && nextStatus !== "todo") {
+    return false;
+  }
   if (task.status === nextStatus) {
     return true;
   }
@@ -301,6 +331,7 @@ export function transitionTaskStatus(
   options: TaskStatusTransitionOptions = {},
 ): Task {
   if (!canTransitionTaskStatus(task, nextStatus, options)) {
+    if (task.quest?.acceptance === "pending") throw new Error("퀘스트를 먼저 수락하세요.");
     if (nextStatus === "done" && task.status !== "review") {
       throw new Error("퀘스트는 검토 대기 상태를 거친 뒤 완료할 수 있습니다.");
     }

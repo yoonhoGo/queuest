@@ -1,0 +1,23 @@
+.quest-context-editor {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--muted-light);
+}
+.quest-context-editor label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.quest-context-editor input:not([type="checkbox"]),
+.quest-context-editor select {
+  min-width: 0;
+  width: 100%;
+}
+.quest-context-summary {
+  overflow-wrap: anywhere;
+  margin-block: 10px;
+}
+.quest-context-summary p { margin-block: 6px; }
+.quest-context-summary .row-action { margin: 4px; }

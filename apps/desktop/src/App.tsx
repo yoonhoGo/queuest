@@ -10,6 +10,8 @@ import {
 } from "@queuest/adapter-github";
 import {
   activeTaskCount,
+  createQuestContext,
+  getTrackedQuests,
   advanceTaskStatus,
   canTransitionTaskStatus,
   calculateExperience,
@@ -25,6 +27,10 @@ import {
   retreatTaskStatus,
   transitionTaskStatus,
 } from "@queuest/domain";
+import { GithubReviewPanel, JiraImportPanel, PendingQuestPanel } from "./components/ExternalWork";
+import { CharacterSprite } from "./components/CharacterSprite.tsx";
+import { QuestContextEditor, QuestContextSummary } from "./components/QuestContext.tsx";
+import { APPEARANCE_COLORS, SPRITE_JOBS, encodeSpriteAppearance, resolveSpriteAppearance, deriveSpriteState } from "./components/sprite.ts";
 import type {
   Assignee,
   Character,
@@ -65,7 +71,15 @@ import {
   validateRepoPath,
   type NewProjectInput,
 } from "./data/project";
-import { discoverTools, type ToolDiscovery, type ToolInfo } from "./data/tools";
+import {
+  discoverInventory,
+  discoverTools,
+  loadAppIcon,
+  type InstalledApp,
+  type ToolDiscovery,
+  type ToolInfo,
+  type ToolInventory,
+} from "./data/tools";
 import {
   deletePluginConnection as deleteStoredPluginConnection,
   deletePluginCredential,
@@ -104,12 +118,6 @@ const JOB_LABEL: Record<Character["job"], string> = {
   developer: "개발자",
   planner: "기획자",
   designer: "디자이너",
-};
-
-const SPRITE_ART: Record<Character["job"], readonly string[]> = {
-  developer: ["●", "╱▌╲", "╱ ╲"],
-  planner: ["◆", "╱▌╲", "╱ ╲"],
-  designer: ["✦", "╱▌╲", "╱ ╲"],
 };
 
 type AppView = "inbox" | "project-picker" | "project" | "character" | "plugins";
@@ -562,6 +570,7 @@ function CharacterHome() {
       .then(([value, loadedGraphs]) => {
         if (!cancelled) {
           setCharacter(value ?? DEFAULT_CHARACTER);
+          setEditing(!value);
           setGraphs(loadedGraphs);
         }
       })
@@ -580,6 +589,9 @@ function CharacterHome() {
   const progress = character && graphs
     ? calculateGlobalCharacterProgress(graphs, character)
     : undefined;
+  const spriteState = deriveSpriteState(
+    graphs?.flatMap((graph) => graph.tasks.filter((task) => task.assignee === "human")) ?? [],
+  );
 
   return (
     <section className="character-home character-sheet" aria-labelledby="profile-title">
@@ -624,13 +636,17 @@ function CharacterHome() {
           ) : (
             <div className="character-home-actions">
               <button className="primary-button" type="button" onClick={() => setEditing(true)}>
-                캐릭터 편집
+                캐릭터 꾸미기
               </button>
             </div>
           )}
 
           <div className="character-summary">
-            <CharacterSprite character={character} />
+            <CharacterSprite
+              character={character}
+              state={spriteState}
+              size={54}
+            />
             <div className="character-copy">
               <div className="character-name-row">
                 <h3>{character.name}</h3>
@@ -695,6 +711,8 @@ function CharacterHome() {
             </div>
           </div>
 
+          <InventoryPanel />
+
           <section className="character-projects" aria-labelledby="character-projects-title">
             <div className="panel-heading">
               <h3 id="character-projects-title">원정 기록</h3>
@@ -714,6 +732,213 @@ function CharacterHome() {
           </section>
         </>
       )}
+    </section>
+  );
+}
+
+const TOOL_DESCRIPTION: Record<ToolInfo["id"], string> = {
+  claude: "AI 작업 실행",
+  gh: "GitHub 연동",
+  jj: "버전 관리",
+};
+
+const TOOL_ICON_LABEL: Record<ToolInfo["id"], string> = {
+  claude: "AI",
+  gh: "GH",
+  jj: "JJ",
+};
+
+function inventoryIconLabel(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    return words.slice(0, 2).map((word) => Array.from(word)[0]).join("").toUpperCase();
+  }
+  return Array.from(name.trim()).slice(0, 2).join("").toUpperCase() || "APP";
+}
+
+function InventoryIcon({ label, source, kind }: { label: string; source?: string; kind: "app" | "tool" }) {
+  return (
+    <span className={`inventory-icon inventory-icon-${kind}`} aria-hidden="true">
+      <span className="inventory-icon-fallback">{label}</span>
+      {source && (
+        <img
+          src={source}
+          alt=""
+          onError={(event) => event.currentTarget.remove()}
+        />
+      )}
+    </span>
+  );
+}
+
+interface InventoryHint {
+  lines: string[];
+  top: number;
+  left: number;
+}
+
+interface InventoryTileHintProps {
+  onShowHint: (target: HTMLElement, lines: string[]) => void;
+  onHideHint: () => void;
+}
+
+function InstalledAppTile({ app, onShowHint, onHideHint }: { app: InstalledApp } & InventoryTileHintProps) {
+  const tileRef = useRef<HTMLLIElement>(null);
+  const [icon, setIcon] = useState<string>();
+
+  useEffect(() => {
+    if (icon) {
+      return;
+    }
+
+    let cancelled = false;
+    const load = () => {
+      void loadAppIcon(app.path)
+        .then((source) => {
+          if (!cancelled && source) {
+            setIcon(source);
+          }
+        })
+        .catch(() => {
+          // The initials fallback remains visible when AppKit cannot render an icon.
+        });
+    };
+    const tile = tileRef.current;
+    if (!tile || !("IntersectionObserver" in window)) {
+      load();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          observer.disconnect();
+          load();
+        }
+      },
+      { root: tile.closest(".inventory-scroll"), rootMargin: "56px" },
+    );
+    observer.observe(tile);
+
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [app.path, icon]);
+
+  return (
+    <li
+      className="inventory-tile"
+      ref={tileRef}
+      tabIndex={0}
+      aria-describedby="inventory-hint"
+      onMouseEnter={(event) => onShowHint(event.currentTarget, [app.name, app.path])}
+      onFocus={(event) => onShowHint(event.currentTarget, [app.name, app.path])}
+      onMouseLeave={onHideHint}
+      onBlur={onHideHint}
+    >
+      <InventoryIcon label={inventoryIconLabel(app.name)} source={icon} kind="app" />
+      <strong>{app.name}</strong>
+    </li>
+  );
+}
+
+function InventoryPanel() {
+  const panelRef = useRef<HTMLElement>(null);
+  const [inventory, setInventory] = useState<ToolInventory | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(true);
+  const [reload, setReload] = useState(0);
+  const [hint, setHint] = useState<InventoryHint | null>(null);
+  const showHint = (target: HTMLElement, lines: string[]) => {
+    const panel = panelRef.current;
+    if (!panel) {
+      return;
+    }
+    const tile = target.getBoundingClientRect();
+    const box = panel.getBoundingClientRect();
+    setHint({
+      lines,
+      top: tile.bottom - box.top + 6,
+      left: Math.max(0, Math.min(tile.left - box.left, box.width - 200)),
+    });
+  };
+  const hideHint = () => setHint(null);
+  useEffect(() => {
+    let cancelled = false;
+    setScanning(true);
+    setError(null);
+    discoverInventory()
+      .then((value) => { if (!cancelled) setInventory(value); })
+      .catch((reason: unknown) => { if (!cancelled) setError(readableError(reason)); })
+      .finally(() => { if (!cancelled) setScanning(false); });
+    return () => { cancelled = true; };
+  }, [reload]);
+  const tools = inventory ? [inventory.tools.claude, inventory.tools.gh, inventory.tools.jj] : [];
+
+  return (
+    <section className="inventory-panel" ref={panelRef} aria-labelledby="inventory-title" aria-busy={scanning}>
+      <div className="panel-heading">
+        <div>
+          <p className="eyebrow">MAC INVENTORY</p>
+          <h3 id="inventory-title">인벤토리</h3>
+        </div>
+        <button
+          className="small-button"
+          type="button"
+          disabled={scanning}
+          aria-label="인벤토리 다시 스캔"
+          onClick={() => setReload((value) => value + 1)}
+        >
+          {scanning ? "스캔 중…" : "다시 스캔"}
+        </button>
+      </div>
+      <p className="inventory-description">이 Mac에서 발견한 항목입니다.</p>
+      {error && (
+        <p className="action-error" role="alert">
+          <span>인벤토리를 스캔하지 못했습니다: {error}</span>
+        </p>
+      )}
+      {scanning && <p className="panel-empty" role="status">인벤토리를 찾는 중…</p>}
+      {inventory && (
+        <ul className="inventory-tile-grid inventory-scroll" aria-label="인벤토리 목록" onScroll={hideHint}>
+          {tools.map((tool) => {
+            const lines = [TOOL_DESCRIPTION[tool.id], `상태: ${toolStatusLabel(tool)}`, ...(tool.path ? [tool.path] : [])];
+            return (
+              <li
+                className="inventory-tile"
+                key={tool.id}
+                tabIndex={0}
+                aria-describedby="inventory-hint"
+                onMouseEnter={(event) => showHint(event.currentTarget, lines)}
+                onFocus={(event) => showHint(event.currentTarget, lines)}
+                onMouseLeave={hideHint}
+                onBlur={hideHint}
+              >
+                <InventoryIcon label={TOOL_ICON_LABEL[tool.id]} kind="tool" />
+                <strong>{tool.id}</strong>
+                <span className={`tool-tag ${tool.installed && tool.authenticated !== false ? "equipped" : "warning"}`}>
+                  {toolStatusLabel(tool)}
+                </span>
+              </li>
+            );
+          })}
+          {inventory.apps.map((app) => (
+            <InstalledAppTile app={app} key={app.path} onShowHint={showHint} onHideHint={hideHint} />
+          ))}
+        </ul>
+      )}
+      <p
+        id="inventory-hint"
+        role="tooltip"
+        className="inventory-hint"
+        hidden={!hint}
+        style={hint ? { top: hint.top, left: hint.left } : undefined}
+      >
+        {hint?.lines.map((line) => <span key={line}>{line}</span>)}
+      </p>
     </section>
   );
 }
@@ -961,6 +1186,11 @@ function PluginConnectionEditor({
                 placeholder="QUEUEST"
                 disabled={submitting}
               />
+            </label>
+            <label>백로그 보드 ID (선택)
+              <input type="number" min="1" step="1" value={config.boardId ?? ""}
+                onChange={event => setConfigValue("boardId", event.target.value)} disabled={submitting} placeholder="123" />
+              <span className="field-hint">Jira 보드 URL의 boards/123 또는 rapidView=123에 있는 숫자입니다. 백로그 가져오기에 필요합니다.</span>
             </label>
           </>
         )}
@@ -1440,6 +1670,17 @@ function TodoInbox({
         {validationError && <p className="validation-note" role="alert">{validationError}</p>}
       </section>
 
+      <GithubReviewPanel />
+      {getTrackedQuests(projectTodos ?? []).length > 0 && <section className="editor-panel" aria-labelledby="tracked-quests-title">
+        <h2 id="tracked-quests-title">추적 중인 퀘스트</h2>
+        {getTrackedQuests(projectTodos ?? []).map(item => <article key={item.task.id}>
+          <p className="todo-meta">{item.project.name} → {item.milestone.name}</p>
+          <h3>{item.task.title}</h3>
+          <QuestContextSummary task={item.task} />
+          <button type="button" className="row-action" onClick={() => onOpenProject(item.project.id)}>프로젝트 열기</button>
+        </article>)}
+      </section>}
+
       {actionError && (
         <div className="action-error" role="alert">
           <span>{actionError}</span>
@@ -1623,7 +1864,7 @@ interface ProjectTodoRowProps {
 }
 
 function ProjectTodoRow({ item, onOpen, onOpenSource }: ProjectTodoRowProps) {
-  const statusLabel = STATUS_COLUMNS.find((column) => column.status === item.task.status)?.label ?? item.task.status;
+  const statusLabel = item.task.quest?.acceptance === "pending" ? "미수락" : STATUS_COLUMNS.find((column) => column.status === item.task.status)?.label ?? item.task.status;
 
   return (
     <article className={`todo-row project-todo-row ${item.task.status === "done" ? "completed" : ""}`}>
@@ -2145,6 +2386,7 @@ function ProjectLoadingState() {
 }
 
 interface TaskDraft {
+  quest: Task["quest"];
   milestoneId: string;
   title: string;
   body: string;
@@ -2172,6 +2414,7 @@ function TaskEditor({
 }: TaskEditorProps) {
   const [title, setTitle] = useState(task?.title ?? "");
   const [body, setBody] = useState(task?.body ?? "");
+  const [quest, setQuest] = useState(task?.quest ?? createQuestContext());
   const [milestoneId, setMilestoneId] = useState(task?.milestoneId ?? defaultMilestoneId);
   const [assignee, setAssignee] = useState<Assignee>(task?.assignee ?? "human");
   const [skills, setSkills] = useState(skillText(task?.skills ?? []));
@@ -2197,6 +2440,7 @@ function TaskEditor({
       milestoneId,
       title: trimmedTitle,
       body: body.trim(),
+      quest,
       assignee,
       skills: parseSkillText(skills),
       blocked,
@@ -2246,6 +2490,7 @@ function TaskEditor({
         </label>
       </div>
 
+      <QuestContextEditor value={quest} onChange={setQuest} disabled={submitting} />
       <label>
         본문
         <textarea
@@ -2557,6 +2802,7 @@ function CharacterSettingsPanel({
   onSubmit,
 }: CharacterSettingsPanelProps) {
   const [name, setName] = useState(character.name);
+  const [appearance, setAppearance] = useState(() => resolveSpriteAppearance(character));
   const [job, setJob] = useState<Character["job"]>(character.job);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -2569,7 +2815,7 @@ function CharacterSettingsPanel({
     }
 
     setValidationError(null);
-    await onSubmit({ name: trimmedName, job, spriteId: job });
+    await onSubmit({ name: trimmedName, job, spriteId: encodeSpriteAppearance(appearance) });
   }
 
   return (
@@ -2577,9 +2823,9 @@ function CharacterSettingsPanel({
       <div className="section-heading">
         <div>
           <p className="eyebrow">CHARACTER SETTINGS</p>
-          <h2 id="character-settings-title">캐릭터 설정</h2>
+          <h2 id="character-settings-title">캐릭터 만들기 · 꾸미기</h2>
         </div>
-        <span className="section-note">이름 · 직업 · 스프라이트</span>
+        <span className="section-note">이름 · 직업 · 외형</span>
       </div>
       <div className="editor-grid">
         <label>
@@ -2604,12 +2850,45 @@ function CharacterSettingsPanel({
             disabled={submitting}
             onChange={(event) => setJob(event.target.value as Character["job"])}
           >
-            <option value="developer">{JOB_LABEL.developer} · 개발 스프라이트</option>
-            <option value="planner">{JOB_LABEL.planner} · 기획 스프라이트</option>
-            <option value="designer">{JOB_LABEL.designer} · 디자인 스프라이트</option>
+            <option value="developer">{JOB_LABEL.developer}</option>
+            <option value="planner">{JOB_LABEL.planner}</option>
+            <option value="designer">{JOB_LABEL.designer}</option>
           </select>
         </label>
       </div>
+      <div className="character-preview" aria-live="polite">
+        <CharacterSprite character={{ name: name.trim() || "새 모험가", job, spriteId: encodeSpriteAppearance(appearance) }} size={96} />
+        <strong>{name.trim() || "새 모험가"}</strong>
+        <span>{JOB_LABEL[job]} · 저장 전에 자유롭게 꾸며보세요</span>
+      </div>
+      <fieldset className="appearance-options" disabled={submitting}>
+        <legend>외형 스타일</legend>
+        <div className="appearance-choices">
+          {SPRITE_JOBS.map((style) => (
+            <button type="button" key={style} aria-pressed={appearance.style === style}
+              onClick={() => setAppearance({ ...appearance, style })}>
+              <CharacterSprite character={{ name: "", job, spriteId: encodeSpriteAppearance({ ...appearance, style }) }} size={36} />
+              {{ developer: "안경", planner: "노트", designer: "베레모" }[style]}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      {(["skin", "hair", "outfit"] as const).map((part) => (
+        <fieldset className="appearance-options" key={part} disabled={submitting}>
+          <legend>{{ skin: "피부색", hair: "머리색", outfit: "의상 색" }[part]}</legend>
+          <div className="appearance-choices">
+            {APPEARANCE_COLORS[part].map((color, index) => (
+              <button type="button" className="color-choice" key={color}
+                aria-label={`${{ skin: "피부색", hair: "머리색", outfit: "의상 색" }[part]} ${index + 1}`}
+                aria-pressed={appearance[part] === color}
+                onClick={() => setAppearance({ ...appearance, [part]: color })}>
+                <span style={{ backgroundColor: color }} />
+                {appearance[part] === color && <span className="color-check">✓</span>}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      ))}
       {validationError && <p className="validation-note" role="alert">{validationError}</p>}
       <div className="form-actions">
         <button className="primary-button" type="submit" disabled={submitting}>
@@ -2884,6 +3163,7 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
   const [milestoneEditor, setMilestoneEditor] = useState<{ milestone?: Milestone } | null>(null);
   const [showProjectSettings, setShowProjectSettings] = useState(false);
   const [githubImportOpen, setGithubImportOpen] = useState(false);
+  const [jiraImportOpen, setJiraImportOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [milestoneToDelete, setMilestoneToDelete] = useState<Milestone | null>(null);
   const [confirmProjectDelete, setConfirmProjectDelete] = useState(false);
@@ -2967,7 +3247,7 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
     }
   }
 
-  async function importGithubTasks(importedTasks: Task[]): Promise<boolean> {
+  async function importExternalTasks(importedTasks: Task[]): Promise<boolean> {
     const existingRefs = new Set(
       tasks.flatMap((task) => task.externalRef ? [task.externalRef] : []),
     );
@@ -2980,7 +3260,7 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
     });
 
     if (newTasks.length === 0) {
-      setSaveError("선택한 GitHub 이슈는 이미 이 프로젝트에 가져와져 있습니다.");
+      setSaveError("선택한 외부 작업은 이미 이 프로젝트에 가져와져 있습니다.");
       return false;
     }
 
@@ -3496,6 +3776,12 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
           )}
         </section>
 
+        {jiraImportOpen && <JiraImportPanel project={project} milestones={orderedMilestones} tasks={tasks}
+          defaultMilestoneId={selectedMilestone?.id} submitting={mutation === "task"}
+          onCancel={() => setJiraImportOpen(false)} onImport={async imported => {
+            const saved = await importExternalTasks(imported); if (saved) setJiraImportOpen(false); return saved;
+          }} />}
+
         {githubImportOpen && (
           <GithubImportPanel
             project={project}
@@ -3507,7 +3793,7 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
             onCancel={() => setGithubImportOpen(false)}
             onImport={async (issues, milestoneId) => {
               const importedTasks = issues.map((issue) => githubIssueToTask(issue, project, milestoneId));
-              const saved = await importGithubTasks(importedTasks);
+              const saved = await importExternalTasks(importedTasks);
               if (saved) {
                 setGithubImportOpen(false);
               }
@@ -3533,6 +3819,7 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
                 >
                   GitHub 가져오기
                 </button>
+                <button className="small-button" type="button" disabled={mutation !== null} onClick={() => setJiraImportOpen(true)}>Jira 가져오기</button>
                 <button
                   className="small-button accent"
                   type="button"
@@ -3544,9 +3831,13 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
               </div>
             </div>
 
+            <PendingQuestPanel tasks={selectedTasks} submitting={mutation !== null}
+              onAccept={task => persistTask({ ...task, status: "todo", quest: { ...task.quest!, acceptance: "accepted" } })}
+              onEdit={task => setTaskEditor({ task, milestoneId: task.milestoneId })}
+              onOpenSource={task => void openTaskSource(task)} onDelete={setTaskToDelete} />
             <div className="board" aria-label={`${selectedMilestone.name} 상태 보드`}>
               {STATUS_COLUMNS.map((column) => {
-                const columnTasks = selectedTasks.filter((task) => task.status === column.status);
+                const columnTasks = selectedTasks.filter((task) => task.quest?.acceptance !== "pending" && task.status === column.status);
 
                 return (
                   <section
@@ -3693,6 +3984,7 @@ function TaskCard({
       </div>
       <h4>{task.title}</h4>
       <p>{task.body}</p>
+      <QuestContextSummary task={task} />
       <div className="card-tags">
         {task.skills.map((skill) => (
           <span key={skill}>#{skill}</span>
@@ -3715,24 +4007,6 @@ function TaskCard({
         <button className="row-action danger" type="button" onClick={onDelete}>삭제</button>
       </div>
     </article>
-  );
-}
-
-interface CharacterSpriteProps {
-  character: Character;
-}
-
-function CharacterSprite({ character }: CharacterSpriteProps) {
-  return (
-    <div
-      className={`sprite sprite-${character.spriteId}`}
-      aria-label={`${JOB_LABEL[character.job]} ${character.spriteId} 도트 캐릭터`}
-      role="img"
-    >
-      {SPRITE_ART[character.job].map((line) => (
-        <span aria-hidden="true" key={line}>{line}</span>
-      ))}
-    </div>
   );
 }
 

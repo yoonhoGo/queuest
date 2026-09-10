@@ -11,7 +11,7 @@
     "dev": "npm run dev --workspace @queuest/desktop",
     "build": "npm run build --workspace @queuest/desktop",
     "check": "npm run typecheck --workspaces --if-present && npm run build --workspace @queuest/desktop",
-    "test": "node --experimental-strip-types --test packages/domain/src/index.test.ts packages/adapter-sqlite/src/index.test.ts packages/adapter-github/src/index.test.ts packages/plugin-contracts/src/index.test.ts packages/plugin-sdk/src/index.test.ts packages/plugin-manager/src/index.test.ts packages/plugin-manager/src/e2e.test.ts packages/plugin-permissions/src/index.test.ts packages/plugin-github/src/index.test.ts packages/plugin-jira/src/index.test.ts packages/plugin-calendar/src/index.test.ts packages/plugin-eventkit/src/index.test.ts packages/plugin-apple-calendar/src/index.test.ts packages/plugin-apple-reminders/src/index.test.ts",
+    "test": "node --experimental-strip-types --test packages/domain/src/index.test.ts apps/desktop/src/components/sprite.test.ts apps/desktop/src/data/jira.test.ts packages/adapter-sqlite/src/index.test.ts packages/adapter-github/src/index.test.ts packages/plugin-contracts/src/index.test.ts packages/plugin-sdk/src/index.test.ts packages/plugin-manager/src/index.test.ts packages/plugin-manager/src/e2e.test.ts packages/plugin-permissions/src/index.test.ts packages/plugin-github/src/index.test.ts packages/plugin-jira/src/index.test.ts packages/plugin-calendar/src/index.test.ts packages/plugin-eventkit/src/index.test.ts packages/plugin-apple-calendar/src/index.test.ts packages/plugin-apple-reminders/src/index.test.ts",
     "tauri": "npm run tauri --workspace @queuest/desktop --"
   },
   "engines": {

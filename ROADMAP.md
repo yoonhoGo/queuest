@@ -8,6 +8,9 @@ Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일�
 
 ## 현재 상태
 
+- [x] [퀘스트 시스템](./docs/quest-system.md) 정의, 문맥 저장·편집 및 전역 추적 표시
+- [ ] 공통 목표·수행 조건·외부 관계 가져오기·반복 회차·일정 동기화·성과 보상 (퀘스트 시스템 완료 조건 참조)
+
 - [x] Tauri 2 + React + TypeScript 기반 데스크톱 골격
 - [x] 도메인 모델과 진행률·게이트·XP·스킬 계산 함수
 - [x] SQLite 스키마와 기본 저장소 어댑터
@@ -222,13 +225,13 @@ EventKit에는 read-only TCC 권한이 없으므로 현재 구현은 full access
 `externalRef` deduplication, EventKit에 생성·수정·삭제를 되돌려 쓰는 operation은 후속
 Host/UI 범위이며 별도의 write capability와 명시적 사용자 확인이 필요하다.
 
-이 완료는 API Connector와 내장 connector 연결 설정 범위에 한정된다. Jira·Calendar·EventKit의
-외부 항목을 로컬 Task 또는 CalendarEvent로 저장하는 흐름은 후속 범위다. GitHub는 아래의 read-only
+API Connector와 내장 connector 연결 설정에 이어 Jira의 native Host 가져오기와 로컬 Task
+저장도 연결했다. Calendar·EventKit 항목의 로컬 Task 또는 CalendarEvent 저장은 후속 범위다. GitHub는 아래의 read-only
 가져오기 흐름을 연결했으며, GitHub에 수정 내용을 되돌려 쓰는 create/update/close/comment
 작업은 읽기 전용 범위 밖의 후속 단계로 남긴다.
 
-Jira Cloud에도 UI에서 외부 항목을 local Task로 import하는 흐름과 `externalRef`
-deduplication, provider write operation은 아직 없다. OAuth/3LO와 self-hosted Jira/Data
+Jira Cloud의 UI 가져오기·local Task 저장·프로젝트 내 `externalRef` 중복 방지는
+별도 native Host adapter로 구현했다. provider write operation은 아직 없다. OAuth/3LO와 self-hosted Jira/Data
 Center 지원도 Atlassian Cloud API Connector 이후의 후속 범위다.
 
 완료 조건: 내장 플러그인과 사용자 설치 플러그인이 동일한 manifest·프로토콜로
@@ -254,9 +257,8 @@ Task 변환을 담당한다.
 완료 조건: 같은 저장소에서 가져오기를 반복해도 동일 이슈가 중복 카드로 생성되지 않는다.
 현재 구현은 선택한 새 이슈만 저장하고, 이미 가져온 이슈는 비활성화해 표시한다.
 
-Jira Cloud Connector의 후속 범위도 동일하다. UI import와 local Task 저장, `externalRef`
-deduplication, provider write operation, OAuth/3LO, self-hosted Jira/Data Center 지원은
-이 read-only API Connector 완료에 포함하지 않는다.
+Jira UI 가져오기와 local Task 저장, 프로젝트 내 `externalRef` 중복 방지는 native Host 경로로
+구현했다. provider write operation, OAuth/3LO, self-hosted Jira/Data Center는 후속 범위다.
 
 Google Calendar Connector도 UI 일정 화면·동기화, 일정 쓰기, CalendarEvent 로컬 저장·Task
 변환, OAuth 동의·token refresh·credential provisioning은 이 read-only API Connector 완료에
@@ -320,3 +322,17 @@ P3 전까지는 로컬 SQLite, 단일 사용자, 외부 도구에서 앱으로 �
 ## 만들지 않는 것
 
 상점·드롭·강화·스탯 효과·스킬 트리, 모바일, 클라우드 동기화, 팀 공유, 역방향 동기화, 반복 태스크, 기한 기반 자동 이월은 해당 단계가 명시되기 전까지 만들지 않는다.
+
+
+### GitHub 검토 PR과 Jira 퀘스트 가져오기
+
+- [x] 할 일 화면에서 `gh` 계정에 리뷰 요청된 열린 PR 조회 및 원본 열기 (최대 100개)
+- [x] 저장된 Jira 연결·대상 스테이지 선택과 프로젝트 티켓 페이지 조회
+- [x] 보드 ID 기반 실제 백로그 조회와 미수락 퀘스트 저장
+- [x] 보드 ID가 설정된 프로젝트 조회에서도 해당 보드 백로그를 미수락으로 분류
+- [x] 명시적 수락, 수락 전 상태 전환 차단·추적 및 진행률/XP 제외
+- [x] SQLite 수락 여부 유지, 프로젝트 내 중복 방지, 부분 저장 실패 후 재시도
+
+데스크톱 Jira 경로는 Node process plugin의 배포와 별개인 native Host adapter이다.
+조회 버튼의 접근 허용을 Host에서 확인하며 process PermissionBroker 승인 저장소와는
+별개다. 실제 Jira/GitHub 계정으로 최종 사용자 검증은 별도로 필요하다.

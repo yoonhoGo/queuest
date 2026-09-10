@@ -95,6 +95,11 @@ test("SQLite repository survives reload and cascades child records", async () =>
       id: "task-1",
       milestoneId: milestone.id,
       title: "저장되는 퀘스트",
+      quest: { acceptance: "accepted", goal: "베타 출시", reason: "사용자 피드백", nextAction: "테스트 작성",
+        role: "main", cadence: "weekly", challenge: "boss", tracked: true,
+        successCriteria: "첫 사용자 완료", scheduledAt: "2026-09-10T14:00",
+        links: [{ kind: "jira", url: "https://example.atlassian.net/browse/Q-1" },
+          { kind: "pr", url: "https://github.com/example/queuest/pull/2" }] },
       body: "저장소 round-trip",
       status: "review",
       assignee: "human",
@@ -179,6 +184,7 @@ test("SQLite repository survives reload and cascades child records", async () =>
           skills: persistedTask.skills,
           blocked: persistedTask.blocked,
           sourceUrl: persistedTask.sourceUrl,
+          quest: persistedTask.quest,
         },
       },
     ]);
@@ -330,4 +336,30 @@ test("adds source URL support when opening a legacy tasks table", async () => {
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+
+test("Jira backlog acceptance persists across repository reloads", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "queuest-jira-acceptance-"));
+  try {
+    const databasePath = join(directory, "test.db");
+    const open = async () => {
+      const repository = new SqliteTaskRepository(new SqliteCliDatabase(databasePath) as unknown as Database);
+      await repository.initialize(); return repository;
+    };
+    const repository = await open();
+    await repository.saveWorkspace({ id: "w", name: "Test" });
+    await repository.saveProject({ id: "p", workspaceId: "w", name: "Test", skills: [] });
+    await repository.saveMilestone({ id: "m", projectId: "p", name: "Stage", order: 1 });
+    const pending: Task = { id: "jira-1", milestoneId: "m", title: "Q-1", body: "", status: "todo",
+      assignee: "human", skills: [], blocked: false, externalRef: "jira:team.atlassian.net/Q-1",
+      quest: { acceptance: "pending", goal: "", reason: "", nextAction: "", role: "side", cadence: "once",
+        challenge: "normal", tracked: false, successCriteria: "", scheduledAt: "", links: [] } };
+    await repository.saveTask(pending);
+    const reloaded = await open();
+    assert.deepEqual((await reloaded.listProjectGraphs())[0].tasks[0], pending);
+    assert.equal((await reloaded.listProjectTodos())[0].task.quest?.acceptance, "pending");
+    await reloaded.saveTask({ ...pending, quest: { ...pending.quest!, acceptance: "accepted" } });
+    assert.equal((await (await open()).listProjectGraphs())[0].tasks[0].quest?.acceptance, "accepted");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

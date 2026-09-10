@@ -119,6 +119,7 @@ interface TaskRow {
   blocked: number | boolean;
   external_ref: string | null;
   source_url: string | null;
+  quest_context?: string | null;
 }
 
 interface ProjectTodoRow {
@@ -132,6 +133,7 @@ interface ProjectTodoRow {
   task_blocked: number | boolean;
   task_external_ref: string | null;
   task_source_url: string | null;
+  task_quest_context?: string | null;
   milestone_id: string;
   milestone_project_id: string;
   milestone_name: string;
@@ -204,6 +206,7 @@ function toTask(row: TaskRow): Task {
     blocked: Boolean(row.blocked),
     ...(row.external_ref ? { externalRef: row.external_ref } : {}),
     ...(row.source_url ? { sourceUrl: row.source_url } : {}),
+    ...(row.quest_context ? { quest: JSON.parse(row.quest_context) as Task["quest"] } : {}),
   };
 }
 
@@ -237,6 +240,7 @@ function toProjectTodo(row: ProjectTodoRow): ProjectTodo {
       blocked: Boolean(row.task_blocked),
       ...(row.task_external_ref ? { externalRef: row.task_external_ref } : {}),
       ...(row.task_source_url ? { sourceUrl: row.task_source_url } : {}),
+      ...(row.task_quest_context ? { quest: JSON.parse(row.task_quest_context) as Task["quest"] } : {}),
     },
   };
 }
@@ -325,6 +329,9 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
     if (!taskColumns.some((column) => column.name === "source_url")) {
       await this.database.execute("ALTER TABLE tasks ADD COLUMN source_url TEXT");
     }
+    if (!taskColumns.some((column) => column.name === "quest_context")) {
+      await this.database.execute("ALTER TABLE tasks ADD COLUMN quest_context TEXT");
+    }
   }
 
   public async listWorkspaces(): Promise<Workspace[]> {
@@ -351,7 +358,7 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
         "SELECT id, project_id, name, milestone_order FROM milestones ORDER BY milestone_order",
       ),
       this.database.select<TaskRow[]>(
-        "SELECT id, milestone_id, title, body, status, assignee, skills, blocked, external_ref, source_url FROM tasks ORDER BY title",
+        "SELECT id, milestone_id, title, body, status, assignee, skills, blocked, external_ref, source_url, quest_context FROM tasks ORDER BY title",
       ),
       this.database.select<TaskCommentRow[]>(
         "SELECT id, task_id, body, author, created_at FROM task_comments ORDER BY created_at, id",
@@ -571,8 +578,8 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
   public async saveTask(task: Task): Promise<void> {
     await this.database.execute(
       `INSERT INTO tasks
-         (id, milestone_id, title, body, status, assignee, skills, blocked, external_ref, source_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         (id, milestone_id, title, body, status, assignee, skills, blocked, external_ref, source_url, quest_context)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT(id) DO UPDATE SET
          milestone_id = excluded.milestone_id,
          title = excluded.title,
@@ -582,7 +589,8 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
          skills = excluded.skills,
          blocked = excluded.blocked,
          external_ref = excluded.external_ref,
-         source_url = excluded.source_url`,
+         source_url = excluded.source_url,
+         quest_context = excluded.quest_context`,
       [
         task.id,
         task.milestoneId,
@@ -594,6 +602,7 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
         task.blocked ? 1 : 0,
         task.externalRef ?? null,
         task.sourceUrl ?? null,
+        task.quest ? JSON.stringify(task.quest) : null,
       ],
     );
 
@@ -629,6 +638,7 @@ export class SqliteTaskRepository implements QueuestRepository, InboxTodoReposit
          t.blocked AS task_blocked,
          t.external_ref AS task_external_ref,
          t.source_url AS task_source_url,
+         t.quest_context AS task_quest_context,
          m.id AS milestone_id,
          m.project_id AS milestone_project_id,
          m.name AS milestone_name,
