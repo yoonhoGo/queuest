@@ -15,6 +15,7 @@ body {
   box-shadow: 4px 4px 0 var(--shadow);
 }
 .popover-tip { display: none; }
+.nav-tip { display: none; }
 
 .topbar {
   min-height: 44px;
@@ -223,10 +224,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   isolation: isolate;
   border-color: var(--fantasy-edge-bright);
   border-radius: 17px 17px 15px 15px;
-  background:
-    radial-gradient(circle at 82% 9%, var(--fantasy-edge-faint), transparent 24%),
-    linear-gradient(180deg, var(--fantasy-panel-soft), var(--fantasy-panel-deep));
-  box-shadow: 0 18px 42px var(--fantasy-window-shadow), 0 0 22px var(--fantasy-window-aura), inset 0 0 0 1px var(--fantasy-edge-faint);
+  background: linear-gradient(180deg, var(--fantasy-panel-soft), var(--fantasy-panel-deep));
+  box-shadow: 0 18px 42px var(--fantasy-window-shadow), 0 0 22px var(--fantasy-window-aura);
 }
 
 :root[data-theme="fantasy"] .app-shell::before {
@@ -240,11 +239,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 :root[data-theme="fantasy"] .popover-tip {
   position: absolute;
   z-index: 3;
-  top: -19px;
-  left: calc(50% - 24px);
+  top: -18px;
+  left: calc(50% - 32px);
   display: block;
-  width: 48px;
-  height: 20px;
+  width: 64px;
+  height: 22px;
   overflow: visible;
   pointer-events: none;
 }
@@ -322,19 +321,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 :root[data-theme="fantasy"] .app-navigation button + button { border-left: 1px solid var(--border-soft); }
 :root[data-theme="fantasy"] .app-navigation button:hover { border-color: var(--fantasy-edge-bright); background: var(--fantasy-panel-raised); }
 :root[data-theme="fantasy"] .app-navigation button[aria-current="page"], :root[data-theme="fantasy"] .app-navigation button[aria-current="page"]:hover { border-color: var(--gold); background: var(--fantasy-active-tab); color: var(--fantasy-gold-soft); box-shadow: none; }
-:root[data-theme="fantasy"] .app-navigation button[aria-current="page"]::after {
-  content: "";
+:root[data-theme="fantasy"] .app-navigation button[aria-current="page"] .nav-tip {
   position: absolute;
-  bottom: -5px;
-  left: calc(50% - 4px);
-  width: 8px;
-  height: 8px;
-  border-right: 1px solid var(--gold);
-  border-bottom: 1px solid var(--gold);
-  border-radius: 2px;
-  background: var(--fantasy-active-tab);
-  transform: rotate(45deg);
+  z-index: 1;
+  bottom: -9px;
+  left: calc(50% - 14px);
+  display: block;
+  width: 28px;
+  height: 11px;
+  overflow: visible;
+  pointer-events: none;
 }
+:root[data-theme="fantasy"] .nav-tip-fill { fill: var(--fantasy-active-tab); stroke: none; }
+:root[data-theme="fantasy"] .nav-tip-line { fill: none; stroke: var(--gold); stroke-width: 1; vector-effect: non-scaling-stroke; }
 
 :root[data-theme="fantasy"] .main-content {
   z-index: 1;

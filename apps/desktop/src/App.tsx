@@ -559,9 +559,9 @@ function App() {
 
 function PopoverTip() {
   return (
-    <svg className="popover-tip" viewBox="0 0 48 20" aria-hidden="true" preserveAspectRatio="none">
-      <path className="popover-tip-fill" d="M0 19H8C11 19 13 17 15 14L20 7C22 4 23 3 24 3C25 3 26 4 28 7L33 14C35 17 37 19 40 19H48V20H0Z" />
-      <path className="popover-tip-line" d="M0 19H8C11 19 13 17 15 14L20 7C22 4 23 3 24 3C25 3 26 4 28 7L33 14C35 17 37 19 40 19H48" />
+    <svg className="popover-tip" viewBox="0 0 64 22" aria-hidden="true" preserveAspectRatio="none">
+      <path className="popover-tip-fill" d="M13 22V18H14C18 18 20 16 23 13L29 6C30 4 31 3 32 3C33 3 34 4 35 6L41 13C44 16 46 18 50 18H51V22Z" />
+      <path className="popover-tip-line" d="M14 18C18 18 20 16 23 13L29 6C30 4 31 3 32 3C33 3 34 4 35 6L41 13C44 16 46 18 50 18" />
     </svg>
   );
 }
@@ -584,7 +584,13 @@ function AppNavigation({ active, onNavigate }: {
       {([['inbox', '할 일', 'clipboard'], ['project', '프로젝트', 'flag'], ['character', '캐릭터', 'person'], ['plugins', '플러그인', 'puzzle']] as const).map(([id, label, icon]) => (
         <button type="button" key={id}
           aria-current={active === id || (id === "project" && active === "project-picker") ? "page" : undefined}
-          onClick={() => onNavigate(id)}><PixelIcon name={icon} /><span>{label}</span></button>
+          onClick={() => onNavigate(id)}>
+          <PixelIcon name={icon} /><span>{label}</span>
+          <svg className="nav-tip" viewBox="0 0 28 11" aria-hidden="true" preserveAspectRatio="none">
+            <path className="nav-tip-fill" d="M7 0H21V2H20C18 2 17 3 16 5L15 7C14.6 8 14.3 8.5 14 8.5C13.7 8.5 13.4 8 13 7L12 5C11 3 10 2 8 2H7Z" />
+            <path className="nav-tip-line" d="M8 2C10 2 11 3 12 5L13 7C13.4 8 13.7 8.5 14 8.5C14.3 8.5 14.6 8 15 7L16 5C17 3 18 2 20 2" />
+          </svg>
+        </button>
       ))}
     </nav>
   );
