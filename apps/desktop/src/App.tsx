@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, RefObject } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useWindowPin } from "./useWindowPin";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   githubIssueExternalRef,
@@ -142,7 +142,7 @@ function App() {
   const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
   const [workspaceMutation, setWorkspaceMutation] = useState<WorkspaceMutation>(null);
   const [selectedProjectGraph, setSelectedProjectGraph] = useState<ProjectGraph | null>(null);
-  const [pinned, setPinned] = useState(false);
+  const { pinned, pinPending, togglePinned } = useWindowPin(setActionError);
 
   useEffect(() => {
     if (previousViewRef.current === view) {
@@ -339,17 +339,6 @@ function App() {
     setView("project-picker");
   }
 
-  async function togglePinned(): Promise<void> {
-    const nextPinned = !pinned;
-
-    try {
-      await invoke("set_window_pinned", { pinned: nextPinned });
-      setPinned(nextPinned);
-    } catch (error: unknown) {
-      setActionError(readableError(error));
-    }
-  }
-
   async function openSourceUrl(url: string): Promise<void> {
     try {
       await openUrl(url);
@@ -457,6 +446,7 @@ function App() {
         key={selectedProjectGraph.project.id}
         graph={selectedProjectGraph}
         pinned={pinned}
+        pinPending={pinPending}
         onTogglePinned={() => void togglePinned()}
         onBackToInbox={backToInbox}
         onProjectDeleted={backToProjectPicker}
@@ -474,6 +464,7 @@ function App() {
       <AppHeader
         todoCount={todos?.filter((todo) => !todo.completed).length ?? 0}
         pinned={pinned}
+        pinPending={pinPending}
         onTogglePinned={() => void togglePinned()}
         onOpenProject={openProjectPicker}
       />
@@ -1487,20 +1478,21 @@ function skillText(skills: string[]): string {
 interface AppHeaderProps {
   todoCount: number;
   pinned: boolean;
+  pinPending: boolean;
   onTogglePinned: () => void;
   onOpenProject: () => void;
 }
 
-function AppHeader({ todoCount, pinned, onTogglePinned, onOpenProject }: AppHeaderProps) {
+function AppHeader({ todoCount, pinned, pinPending, onTogglePinned, onOpenProject }: AppHeaderProps) {
   return (
-    <header className="topbar">
-      <div className="brand-lockup">
-        <div className="brand-mark" aria-hidden="true">
+    <header className="topbar" data-tauri-drag-region={!pinned && !pinPending}>
+      <div className="brand-lockup" data-tauri-drag-region={!pinned && !pinPending}>
+        <div className="brand-mark" aria-hidden="true" data-tauri-drag-region={!pinned && !pinPending}>
           Q
         </div>
-        <div>
-          <p className="eyebrow">TODO-FIRST QUEST BOARD</p>
-          <h1>Queuest</h1>
+        <div data-tauri-drag-region={!pinned && !pinPending}>
+          <p className="eyebrow" data-tauri-drag-region={!pinned && !pinPending}>TODO-FIRST QUEST BOARD</p>
+          <h1 data-tauri-drag-region={!pinned && !pinPending}>Queuest</h1>
         </div>
       </div>
       <div className="topbar-actions">
@@ -1512,7 +1504,8 @@ function AppHeader({ todoCount, pinned, onTogglePinned, onOpenProject }: AppHead
           type="button"
           aria-label={pinned ? "팝오버 고정 해제" : "팝오버 고정"}
           aria-pressed={pinned}
-          title={pinned ? "팝오버 고정 해제" : "포커스를 잃어도 팝오버 유지"}
+          disabled={pinPending}
+          title={pinned ? "고정 해제: 드래그 이동 허용, 다른 앱을 클릭하면 숨기기" : "드래그 이동을 잠그고 항상 위에 표시"}
           onClick={onTogglePinned}
         >
           {pinned ? "고정됨" : "고정"}
@@ -3135,13 +3128,14 @@ interface ProjectBoardProps {
   windowError: string | null;
   graph: ProjectGraph;
   pinned: boolean;
+  pinPending: boolean;
   onTogglePinned: () => void;
   onBackToInbox: () => void;
   onProjectDeleted: () => void;
   onOpenCharacter: () => void;
 }
 
-function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectDeleted, onOpenCharacter, windowError }: ProjectBoardProps) {
+function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox, onProjectDeleted, onOpenCharacter, windowError }: ProjectBoardProps) {
   const [section, setSection] = useState<"project" | "plugins">("project");
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [section]);
@@ -3552,14 +3546,14 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand-lockup">
-          <div className="brand-mark" aria-hidden="true">
+      <header className="topbar" data-tauri-drag-region={!pinned && !pinPending}>
+        <div className="brand-lockup" data-tauri-drag-region={!pinned && !pinPending}>
+          <div className="brand-mark" aria-hidden="true" data-tauri-drag-region={!pinned && !pinPending}>
             Q
           </div>
-          <div>
-            <p className="eyebrow">MENU BAR QUEST BOARD</p>
-            <h1>Queuest</h1>
+          <div data-tauri-drag-region={!pinned && !pinPending}>
+            <p className="eyebrow" data-tauri-drag-region={!pinned && !pinPending}>MENU BAR QUEST BOARD</p>
+            <h1 data-tauri-drag-region={!pinned && !pinPending}>Queuest</h1>
           </div>
         </div>
         <div className="topbar-actions">
@@ -3571,7 +3565,8 @@ function ProjectBoard({ graph, pinned, onTogglePinned, onBackToInbox, onProjectD
             type="button"
             aria-label={pinned ? "팝오버 고정 해제" : "팝오버 고정"}
             aria-pressed={pinned}
-            title={pinned ? "팝오버 고정 해제" : "포커스를 잃어도 팝오버 유지"}
+            disabled={pinPending}
+            title={pinned ? "고정 해제: 드래그 이동 허용, 다른 앱을 클릭하면 숨기기" : "드래그 이동을 잠그고 항상 위에 표시"}
             onClick={onTogglePinned}
           >
             {pinned ? "고정됨" : "고정"}
