@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, RefObject } from "react";
+import type { CSSProperties, FormEvent, RefObject } from "react";
 import { useWindowPin } from "./useWindowPin";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -130,9 +130,22 @@ const JOB_LABEL: Record<Character["job"], string> = {
 type AppView = "inbox" | "project-picker" | "project" | "character" | "plugins";
 type ProjectLoadState = "idle" | "loading" | "ready" | "error";
 type WorkspaceMutation = "create" | "update" | "delete" | null;
+type AppTheme = "retro" | "fantasy";
+
+const THEME_STORAGE_KEY = "queuest:theme";
+
+function readStoredTheme(): AppTheme {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) === "fantasy" ? "fantasy" : "retro";
+  } catch {
+    return "retro";
+  }
+}
 
 function App() {
   const [view, setView] = useState<AppView>("inbox");
+  const [theme, setTheme] = useState<AppTheme>(readStoredTheme);
+  const [showThemePicker, setShowThemePicker] = useState(false);
   const viewHeadingRef = useRef<HTMLHeadingElement>(null);
   const contentRef = useRef<HTMLElement>(null);
   const previousViewRef = useRef<AppView>(view);
@@ -150,6 +163,15 @@ function App() {
   const [workspaceMutation, setWorkspaceMutation] = useState<WorkspaceMutation>(null);
   const [selectedProjectGraph, setSelectedProjectGraph] = useState<ProjectGraph | null>(null);
   const { pinned, pinPending, togglePinned } = useWindowPin(setActionError);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // The selected theme still applies for this session when storage is unavailable.
+    }
+  }, [theme]);
 
   useEffect(() => {
     if (previousViewRef.current === view) {
@@ -449,31 +471,37 @@ function App() {
 
   if (view === "project" && selectedProjectGraph) {
     return (
-      <ProjectBoard
-        key={selectedProjectGraph.project.id}
-        graph={selectedProjectGraph}
-        pinned={pinned}
-        pinPending={pinPending}
-        onTogglePinned={() => void togglePinned()}
-        onBackToInbox={backToInbox}
-        onProjectDeleted={backToProjectPicker}
-        onOpenCharacter={() => {
-          setSelectedProjectGraph(null);
-          setView("character");
-        }}
-        windowError={actionError}
-      />
+      <>
+        <ProjectBoard
+          key={selectedProjectGraph.project.id}
+          graph={selectedProjectGraph}
+          pinned={pinned}
+          pinPending={pinPending}
+          onTogglePinned={() => void togglePinned()}
+          onBackToInbox={backToInbox}
+          onProjectDeleted={backToProjectPicker}
+          onOpenCharacter={() => {
+            setSelectedProjectGraph(null);
+            setView("character");
+          }}
+          onOpenThemeSettings={() => setShowThemePicker(true)}
+          windowError={actionError}
+        />
+        {showThemePicker && <ThemePicker theme={theme} onChange={setTheme} onClose={() => setShowThemePicker(false)} />}
+      </>
     );
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={theme}>
+      <PopoverTip />
       <AppHeader
         todoCount={todos?.filter((todo) => !todo.completed).length ?? 0}
         pinned={pinned}
         pinPending={pinPending}
         onTogglePinned={() => void togglePinned()}
         onOpenProject={() => openProjectPicker()}
+        onOpenThemeSettings={() => setShowThemePicker(true)}
       />
       <AppNavigation active={view} onNavigate={(next) => next === "project" ? openProjectPicker() : setView(next)} />
       <main className="main-content" ref={contentRef}>
@@ -524,7 +552,17 @@ function App() {
           />
         )}
       </main>
+      {showThemePicker && <ThemePicker theme={theme} onChange={setTheme} onClose={() => setShowThemePicker(false)} />}
     </div>
+  );
+}
+
+function PopoverTip() {
+  return (
+    <svg className="popover-tip" viewBox="0 0 64 22" aria-hidden="true" preserveAspectRatio="none">
+      <path className="popover-tip-fill" d="M13 22V18H14C18 18 20 16 23 13L29 6C30 4 31 3 32 3C33 3 34 4 35 6L41 13C44 16 46 18 50 18H51V22Z" />
+      <path className="popover-tip-line" d="M14 18C18 18 20 16 23 13L29 6C30 4 31 3 32 3C33 3 34 4 35 6L41 13C44 16 46 18 50 18" />
+    </svg>
   );
 }
 
@@ -543,12 +581,50 @@ function AppNavigation({ active, onNavigate }: {
 }) {
   return (
     <nav className="app-navigation" aria-label="주요 화면">
-      {([['inbox', '할 일'], ['project', '프로젝트'], ['character', '캐릭터'], ['plugins', '플러그인']] as const).map(([id, label]) => (
+      {([['inbox', '할 일', 'clipboard'], ['project', '프로젝트', 'flag'], ['character', '캐릭터', 'person'], ['plugins', '플러그인', 'puzzle']] as const).map(([id, label, icon]) => (
         <button type="button" key={id}
           aria-current={active === id || (id === "project" && active === "project-picker") ? "page" : undefined}
-          onClick={() => onNavigate(id)}>{label}</button>
+          onClick={() => onNavigate(id)}>
+          <PixelIcon name={icon} /><span>{label}</span>
+          <svg className="nav-tip" viewBox="0 0 28 11" aria-hidden="true" preserveAspectRatio="none">
+            <path className="nav-tip-fill" d="M7 0H21V2H20C18 2 17 3 16 5L15 7C14.6 8 14.3 8.5 14 8.5C13.7 8.5 13.4 8 13 7L12 5C11 3 10 2 8 2H7Z" />
+            <path className="nav-tip-line" d="M8 2C10 2 11 3 12 5L13 7C13.4 8 13.7 8.5 14 8.5C14.3 8.5 14.6 8 15 7L16 5C17 3 18 2 20 2" />
+          </svg>
+        </button>
       ))}
     </nav>
+  );
+}
+
+function ThemePicker({ theme, onChange, onClose }: {
+  theme: AppTheme;
+  onChange: (theme: AppTheme) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="dialog-backdrop">
+      <section className="confirm-dialog theme-picker" role="dialog" aria-modal="true" aria-labelledby="theme-picker-title">
+        <p className="eyebrow">APPEARANCE</p>
+        <h2 id="theme-picker-title">테마 선택</h2>
+        <p className="theme-picker-description">화면 분위기를 바꿔도 퀘스트와 프로젝트 데이터는 그대로 유지됩니다.</p>
+        <div className="theme-options" role="group" aria-label="앱 테마">
+          <button className={`theme-choice retro ${theme === "retro" ? "selected" : ""}`} type="button" aria-pressed={theme === "retro"} onClick={() => onChange("retro")}>
+            <span className="theme-swatch" aria-hidden="true"><i /><i /><i /></span>
+            <span><strong>레트로</strong><small>모눈 종이와 민트 창</small></span>
+            {theme === "retro" && <em>사용 중</em>}
+          </button>
+          <button className={`theme-choice fantasy ${theme === "fantasy" ? "selected" : ""}`} type="button" aria-pressed={theme === "fantasy"} onClick={() => onChange("fantasy")}>
+            <span className="theme-swatch" aria-hidden="true"><i /><i /><i /></span>
+            <span><strong>별빛 모험</strong><small>밤의 남색과 금빛 퀘스트</small></span>
+            {theme === "fantasy" && <em>사용 중</em>}
+          </button>
+        </div>
+        <p className="theme-selection-status" role="status" aria-live="polite">{theme === "fantasy" ? "별빛 모험 테마를 적용했습니다." : "레트로 테마를 적용했습니다."}</p>
+        <div className="form-actions">
+          <button className="secondary-button" type="button" onClick={onClose}>닫기</button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1541,6 +1617,7 @@ function TodoInbox({
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  const composeInputRef = useRef<HTMLInputElement>(null);
 
   const completedCount = todos.filter((todo) => todo.completed).length;
 
@@ -1585,24 +1662,26 @@ function TodoInbox({
 
   return (
     <>
-      <section className="inbox-intro" aria-labelledby="inbox-title">
-        <div>
-          <p className="eyebrow">PERSONAL INBOX</p>
-          <h2 id="inbox-title" ref={headingRef} tabIndex={-1}><PixelIcon name="clipboard" />오늘의 퀘스트</h2>
-          <p className="inbox-lede">
-            한 걸음씩, 오늘도 레벨 업!
-          </p>
+      <section className="inbox-hero" aria-labelledby="inbox-title">
+        <div className="inbox-intro">
+          <div>
+            <p className="eyebrow">PERSONAL INBOX</p>
+            <h2 id="inbox-title" ref={headingRef} tabIndex={-1}><PixelIcon name="clipboard" />오늘의 퀘스트</h2>
+            <p className="inbox-lede">
+              한 걸음씩, 오늘도 레벨 업!
+            </p>
+          </div>
+          <span className="workspace-chip">로컬 저장소</span>
         </div>
-        <span className="workspace-chip">로컬 저장소</span>
+        {todos.length > 0 && <div className="inbox-progress">
+          <div className="progress-track" role="progressbar" aria-label="인박스 완료율"
+            aria-valuemin={0} aria-valuemax={todos.length} aria-valuenow={completedCount}
+            style={{ "--segment-count": Math.max(todos.length, 1) } as CSSProperties}>
+            <span style={{ width: `${completedCount / todos.length * 100}%` }} />
+          </div>
+          <span>{completedCount} / {todos.length} 완료</span>
+        </div>}
       </section>
-
-      {todos.length > 0 && <div className="inbox-progress">
-        <div className="progress-track" role="progressbar" aria-label="인박스 완료율"
-          aria-valuemin={0} aria-valuemax={todos.length} aria-valuenow={completedCount}>
-          <span style={{ width: `${completedCount / todos.length * 100}%` }} />
-        </div>
-        <span>{completedCount} / {todos.length} 완료</span>
-      </div>}
       <section className="todo-compose" aria-labelledby="compose-title">
         <div className="section-heading">
           <div>
@@ -1613,7 +1692,9 @@ function TodoInbox({
         </div>
         <form className="todo-form" onSubmit={handleCreate}>
           <label className="sr-only" htmlFor="new-todo-title">새 할 일 제목</label>
+          <button className="primary-button compose-add" type="submit"><span aria-hidden="true">＋</span><span className="compose-add-label">추가</span></button>
           <input
+            ref={composeInputRef}
             id="new-todo-title"
             type="text"
             value={draftTitle}
@@ -1625,7 +1706,7 @@ function TodoInbox({
               }
             }}
           />
-          <button className="primary-button" type="submit">추가</button>
+          <span className="compose-shortcut" aria-hidden="true">↵</span>
         </form>
         {validationError && <p className="validation-note" role="alert">{validationError}</p>}
       </section>
@@ -1682,6 +1763,14 @@ function TodoInbox({
           </div>
         </section>
       )}
+
+      <button className="fantasy-quest-cta" type="button" onClick={() => composeInputRef.current?.focus()}>
+        <span aria-hidden="true">✦</span><strong>＋&nbsp;&nbsp;퀘스트 만들기</strong><span aria-hidden="true">✦</span>
+      </button>
+      <footer className="fantasy-quote">
+        <p>“작은 퀘스트가, 특별한 하루를 만든다.”</p>
+        <span>— Queuest</span>
+      </footer>
 
       <section className="project-todo-panel" aria-labelledby="project-todo-title">
         <div className="section-heading">
@@ -1808,10 +1897,13 @@ function TodoRow({
         </div>
       )}
       {!editing && (
-        <div className="todo-actions">
-          <button className="row-action" ref={editButtonRef} type="button" onClick={onEdit}>편집</button>
-          <button className="row-action danger" type="button" onClick={() => void onDelete()}>삭제</button>
-        </div>
+        <details className="todo-actions todo-more">
+          <summary aria-label={`${todo.title} 작업 메뉴`}><span aria-hidden="true">•••</span></summary>
+          <div className="todo-action-menu">
+            <button className="row-action" ref={editButtonRef} type="button" onClick={onEdit}>편집</button>
+            <button className="row-action danger" type="button" onClick={() => void onDelete()}>삭제</button>
+          </div>
+        </details>
       )}
     </article>
   );
@@ -2991,9 +3083,10 @@ interface ProjectBoardProps {
   onBackToInbox: () => void;
   onProjectDeleted: () => void;
   onOpenCharacter: () => void;
+  onOpenThemeSettings: () => void;
 }
 
-function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox, onProjectDeleted, onOpenCharacter, windowError }: ProjectBoardProps) {
+function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox, onProjectDeleted, onOpenCharacter, onOpenThemeSettings, windowError }: ProjectBoardProps) {
   const [section, setSection] = useState<"project" | "plugins">("project");
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [section]);
@@ -3404,10 +3497,12 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
 
   return (
     <div className="app-shell">
+      <PopoverTip />
       <AppHeader todoCount={activeCount} countLabel="현재 진행 중인 태스크 수"
         pinned={pinned} pinPending={pinPending} onTogglePinned={onTogglePinned}
         onOpenProject={onBackToInbox} projectLabel="인박스"
-        onOpenSettings={() => { setSection("project"); setShowProjectSettings(true); }} />
+        onOpenSettings={() => { setSection("project"); setShowProjectSettings(true); }}
+        onOpenThemeSettings={onOpenThemeSettings} />
 
       <AppNavigation
         active={section}

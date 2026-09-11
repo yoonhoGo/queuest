@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build",
     "build:native": "npm run build:native --workspace @queuest/plugin-eventkit",
+    "build:native:dev": "npm run build:native:dev --workspace @queuest/plugin-eventkit",
     "preview": "vite preview",
     "tauri": "tauri"
   },

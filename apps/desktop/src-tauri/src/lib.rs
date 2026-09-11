@@ -177,7 +177,24 @@ mod popover_tests {
 
 fn toggle_main_window(app: &tauri::AppHandle, anchor: Option<tauri::Rect>) {
     if let Some(window) = app.get_webview_window("main") {
-        if window.is_visible().unwrap_or(false) {
+        if cfg!(debug_assertions) {
+            let anchor = anchor.or_else(|| {
+                app.tray_by_id("queuest")
+                    .and_then(|tray| tray.rect().ok().flatten())
+            });
+            if let Some(anchor) = anchor {
+                if let Err(error) = position_main_window(&window, anchor) {
+                    eprintln!("Queuest 개발 창 위치 설정 실패: {error}");
+                }
+            }
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+            return;
+        }
+
+        let visible = window.is_visible().unwrap_or(false);
+        if visible {
             let _ = window.hide();
         } else if app.state::<WindowState>().is_pinned().unwrap_or(false) {
             let _ = window.unminimize();
@@ -201,6 +218,27 @@ fn toggle_main_window(app: &tauri::AppHandle, anchor: Option<tauri::Rect>) {
             let _ = window.show();
             let _ = window.set_focus();
         }
+    }
+}
+
+fn should_hide_on_focus_loss(pinned: bool, directory_dialog_open: bool, debug_build: bool) -> bool {
+    !debug_build && !pinned && !directory_dialog_open
+}
+
+#[cfg(test)]
+mod window_visibility_tests {
+    use super::should_hide_on_focus_loss;
+
+    #[test]
+    fn development_windows_stay_open_when_focus_moves() {
+        assert!(!should_hide_on_focus_loss(false, false, true));
+    }
+
+    #[test]
+    fn release_popovers_only_hide_when_unpinned_and_idle() {
+        assert!(should_hide_on_focus_loss(false, false, false));
+        assert!(!should_hide_on_focus_loss(true, false, false));
+        assert!(!should_hide_on_focus_loss(false, true, false));
     }
 }
 
@@ -741,12 +779,18 @@ pub fn run() {
                             .state::<WindowState>()
                             .is_pinned()
                             .unwrap_or(false);
-                        if !pinned && !app_handle.state::<DirectoryDialogState>().is_open() {
+                        if should_hide_on_focus_loss(
+                            pinned,
+                            app_handle.state::<DirectoryDialogState>().is_open(),
+                            cfg!(debug_assertions),
+                        ) {
                             let _ = focus_window.hide();
                         }
                     }
                 });
-                let _ = window.hide();
+                if !cfg!(debug_assertions) {
+                    let _ = window.hide();
+                }
             }
 
             let toggle = MenuItemBuilder::with_id("toggle", "Queuest 열기/닫기").build(app)?;
@@ -777,6 +821,10 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            if cfg!(debug_assertions) {
+                toggle_main_window(app.handle(), None);
+            }
 
             Ok(())
         })
