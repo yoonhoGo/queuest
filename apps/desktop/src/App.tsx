@@ -87,6 +87,7 @@ import {
   savePluginConnection as saveStoredPluginConnection,
   savePluginCredential,
 } from "./data/plugin";
+import { EXTERNAL_SYNC_INTERVAL_MS, syncExternalConnections } from "./data/external-sync";
 import { AppHeader } from "./components/AppHeader";
 import { CharacterCompletionStats } from "./components/CharacterCompletionStats";
 import { PixelIcon } from "./components/PixelIcon";
@@ -149,6 +150,7 @@ function App() {
   const [projectLoadError, setProjectLoadError] = useState<string | null>(null);
   const [workspaceMutation, setWorkspaceMutation] = useState<WorkspaceMutation>(null);
   const [selectedProjectGraph, setSelectedProjectGraph] = useState<ProjectGraph | null>(null);
+  const syncRunningRef = useRef(false);
   const { pinned, pinPending, togglePinned } = useWindowPin(setActionError);
 
   useEffect(() => {
@@ -220,6 +222,34 @@ function App() {
       });
 
     return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const sync = async () => {
+      if (syncRunningRef.current) return;
+      syncRunningRef.current = true;
+      try {
+        const result = await syncExternalConnections();
+        if (mounted && (result.created > 0 || result.updated > 0)) {
+          const [graphs, loadedProjectTodos, loadedWorkspaces] = await Promise.all([
+            loadProjectGraphs(), loadProjectTodos(), loadWorkspaces(),
+          ]);
+          if (mounted) {
+            setProjectGraphs(graphs);
+            setProjectTodos(loadedProjectTodos);
+            setWorkspaces(loadedWorkspaces);
+          }
+        }
+      } catch (error: unknown) {
+        if (mounted) setActionError(`외부 퀘스트 자동 동기화 실패: ${readableError(error)}`);
+      } finally {
+        syncRunningRef.current = false;
+      }
+    };
+    void sync();
+    const interval = window.setInterval(() => void sync(), EXTERNAL_SYNC_INTERVAL_MS);
+    return () => { mounted = false; window.clearInterval(interval); };
   }, []);
 
   async function createTodo(title: string): Promise<boolean> {
@@ -492,7 +522,11 @@ function App() {
       />
       <AppNavigation active={view} onNavigate={(next) => next === "project" ? openProjectPicker() : setView(next)} />
       <main className="main-content" ref={contentRef}>
-        {view === "character" ? <CharacterHome /> : view === "plugins" ? <PluginsPanel onOpenProject={openProjectPicker} /> : view === "project-picker" ? (
+        {view === "character" ? <CharacterHome /> : view === "plugins" ? <PluginsPanel onOpenProject={openProjectPicker} onConnectionSaved={async connection => {
+          await syncExternalConnections(connection);
+          const [graphs, loadedProjectTodos, loadedWorkspaces] = await Promise.all([loadProjectGraphs(), loadProjectTodos(), loadWorkspaces()]);
+          setProjectGraphs(graphs); setProjectTodos(loadedProjectTodos); setWorkspaces(loadedWorkspaces);
+        }} /> : view === "project-picker" ? (
           <ProjectPicker
             headingRef={viewHeadingRef}
             onBack={() => setView("inbox")}
@@ -1247,9 +1281,10 @@ function PluginConnectionEditor({
 
 interface PluginsPanelProps {
   onOpenProject?: () => void;
+  onConnectionSaved?: (connection: PluginConnection) => Promise<void>;
 }
 
-function PluginsPanel({ onOpenProject }: PluginsPanelProps) {
+function PluginsPanel({ onOpenProject, onConnectionSaved }: PluginsPanelProps) {
   const [tools, setTools] = useState<ToolDiscovery | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connections, setConnections] = useState<PluginConnection[] | null>(null);
@@ -1374,6 +1409,13 @@ function PluginsPanel({ onOpenProject }: PluginsPanelProps) {
       }
       setConnections(await loadPluginConnections());
       setConnectionEditor(null);
+      if ((connector.id === "jira" || connector.id === "github") && onConnectionSaved) {
+        try {
+          await onConnectionSaved(nextConnection);
+        } catch (reason: unknown) {
+          setConnectionError(`연결은 저장했지만 첫 동기화에 실패했습니다: ${readableError(reason)}`);
+        }
+      }
       return true;
     } catch (reason: unknown) {
       setConnectionError(readableError(reason));
@@ -3506,6 +3548,7 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
         {windowError && <p className="action-error" role="alert">{windowError}</p>}
         {section === "plugins" && (
           <PluginsPanel
+            onConnectionSaved={async connection => { await syncExternalConnections(connection); }}
             onOpenProject={() => {
               setSection("project");
               setGithubImportOpen(true);

@@ -35,6 +35,9 @@ pub struct JiraIssue {
     external_ref: String,
     url: String,
     backlog: bool,
+    issue_type: String,
+    is_epic: bool,
+    parent_key: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -42,6 +45,102 @@ pub struct JiraIssue {
 pub struct JiraPage {
     items: Vec<JiraIssue>,
     next_cursor: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GithubConnectionIssue {
+    number: u64,
+    title: String,
+    body: Option<String>,
+    state: String,
+    url: String,
+}
+
+#[tauri::command]
+pub async fn github_connection_issue_list(
+    connection_id: String,
+    repository: String,
+) -> Result<Vec<GithubConnectionIssue>, String> {
+    super::keychain_identifiers("com.queuest.github", &connection_id)?;
+    let valid_repository = repository.len() <= 200
+        && repository.split('/').count() == 2
+        && repository.split('/').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        });
+    if !valid_repository {
+        return Err("GitHub 저장소는 owner/repository 형식이어야 합니다.".into());
+    }
+    #[cfg(target_os = "macos")]
+    let token = {
+        let (service, account) = super::keychain_identifiers("com.queuest.github", &connection_id)?;
+        let output = Command::new("/usr/bin/security")
+            .args([
+                "find-generic-password",
+                "-s",
+                &service,
+                "-a",
+                &account,
+                "-w",
+            ])
+            .output()
+            .map_err(|_| "GitHub 인증 정보를 읽지 못했습니다.")?;
+        if !output.status.success() {
+            return Err("연동 설정에서 GitHub token을 저장하세요.".into());
+        }
+        String::from_utf8(output.stdout).map_err(|_| "GitHub 인증 정보를 다시 저장하세요.")?
+    };
+    #[cfg(not(target_os = "macos"))]
+    return Err("GitHub 인증은 macOS Keychain에서만 지원합니다.".into());
+    #[cfg(target_os = "macos")]
+    {
+        let url =
+            format!("https://api.github.com/repos/{repository}/issues?state=all&per_page=100");
+        let response = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|_| "GitHub 연결을 준비하지 못했습니다.")?
+            .get(url)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "Queuest/0.1")
+            .bearer_auth(token.trim())
+            .send()
+            .await
+            .map_err(|_| "GitHub 연결에 실패했습니다.")?;
+        if !response.status().is_success() {
+            return Err("GitHub 인증 또는 저장소 권한을 확인하세요.".into());
+        }
+        let body: Value = response
+            .json()
+            .await
+            .map_err(|_| "GitHub 응답을 해석하지 못했습니다.")?;
+        let rows = body
+            .as_array()
+            .ok_or("GitHub 응답을 해석하지 못했습니다.")?;
+        rows.iter()
+            .filter(|row| row.get("pull_request").is_none())
+            .map(|row| {
+                Ok(GithubConnectionIssue {
+                    number: row["number"]
+                        .as_u64()
+                        .ok_or("GitHub 응답을 해석하지 못했습니다.")?,
+                    title: row["title"]
+                        .as_str()
+                        .ok_or("GitHub 응답을 해석하지 못했습니다.")?
+                        .into(),
+                    body: row["body"].as_str().map(String::from),
+                    state: row["state"].as_str().unwrap_or("open").to_ascii_uppercase(),
+                    url: row["html_url"]
+                        .as_str()
+                        .ok_or("GitHub 응답을 해석하지 못했습니다.")?
+                        .into(),
+                })
+            })
+            .collect()
+    }
 }
 
 fn jira_origin(value: &str) -> Result<reqwest::Url, String> {
@@ -181,6 +280,15 @@ fn map_page(body: Value, origin: &reqwest::Url, backlog: bool) -> Result<JiraPag
                 .map_err(|_| invalid())?
                 .into(),
             backlog,
+            issue_type: fields["issuetype"]["name"]
+                .as_str()
+                .unwrap_or("Task")
+                .into(),
+            is_epic: fields["issuetype"]["hierarchyLevel"].as_i64() == Some(1)
+                || fields["issuetype"]["name"]
+                    .as_str()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("epic")),
+            parent_key: fields["parent"]["key"].as_str().map(String::from),
         });
     }
     let next_cursor = match body.get("nextPageToken") {
@@ -226,15 +334,14 @@ pub async fn jira_issue_list(query: JiraQuery) -> Result<JiraPage, String> {
         let mut request = client.get(url).query(&[
             ("jql", jql),
             ("maxResults", "100"),
-            ("fields", "summary,description,status"),
+            ("fields", "summary,description,status,issuetype,parent"),
         ]);
         if let Some(cursor) = &query.cursor {
             request = request.query(&[("nextPageToken", cursor)]);
         }
         request
     } else {
-        let mut payload =
-            json!({"jql": jql, "maxResults": 100, "fields": ["summary", "description", "status"]});
+        let mut payload = json!({"jql": jql, "maxResults": 100, "fields": ["summary", "description", "status", "issuetype", "parent"]});
         if let Some(cursor) = &query.cursor {
             payload["nextPageToken"] = json!(cursor);
         }
@@ -405,7 +512,7 @@ mod tests {
 
     #[test]
     fn preserves_backlog_identity_description_and_pagination() {
-        let body = json!({"issues": [{"key": "Q-1", "fields": {"summary": "Test", "description": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Do it"}]}]}, "status": {"name": "Backlog", "statusCategory": {"key": "new"}}}}], "nextPageToken": "next", "isLast": false});
+        let body = json!({"issues": [{"key": "Q-1", "fields": {"summary": "Test", "description": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Do it"}]}]}, "status": {"name": "Backlog", "statusCategory": {"key": "new"}}, "issuetype": {"name": "Story", "hierarchyLevel": 0}, "parent": {"key": "Q-EPIC"}}}], "nextPageToken": "next", "isLast": false});
         let page = map_page(
             body,
             &jira_origin("https://team.atlassian.net").unwrap(),
@@ -415,6 +522,9 @@ mod tests {
         assert_eq!(page.items[0].external_ref, "jira:team.atlassian.net/Q-1");
         assert_eq!(page.items[0].body, "Do it");
         assert!(page.items[0].backlog);
+        assert_eq!(page.items[0].issue_type, "Story");
+        assert!(!page.items[0].is_epic);
+        assert_eq!(page.items[0].parent_key.as_deref(), Some("Q-EPIC"));
         assert_eq!(page.next_cursor.as_deref(), Some("next"));
         assert!(map_page(
             json!({"issues": [], "isLast": false}),
