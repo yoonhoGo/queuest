@@ -42,6 +42,19 @@
 .todo-actions .row-action { min-height: 34px; padding: var(--space-1); font-size: var(--text-small); }
 .project-todo-row .todo-actions { max-width: 76px; }
 .project-todo-panel { border: 1px solid var(--ink); background: var(--paper-bright); padding: var(--space-3); }
+.unified-quest-panel { margin-top: var(--space-4); }
+.quest-board-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: var(--space-3); }
+.quest-board-tabs button { min-width: 0; min-height: 38px; padding: var(--space-1); border: 1px solid var(--ink); border-radius: 0; background: var(--paper); color: var(--ink); font: inherit; font-size: var(--text-small); }
+.quest-board-tabs button + button { border-left: 0; }
+.quest-board-tabs button[aria-selected="true"] { background: var(--gold); font-weight: 800; }
+.quest-board-tabs button:hover { background: var(--paper-deep); }
+.quest-board-tabs button[aria-selected="true"]:hover { background: var(--gold); }
+.quest-detail-dialog { width: min(100%, 560px); }
+.quest-detail-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.quest-detail-list { display: grid; gap: var(--space-2); margin: var(--space-3) 0; }
+.quest-detail-list > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: var(--space-2); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-soft); }
+.quest-detail-list dt { color: var(--muted); font-size: var(--text-small); font-weight: 700; }
+.quest-detail-list dd { margin: 0; overflow-wrap: anywhere; }
 .project-next-step { background: var(--paper-bright); border: 1px solid var(--ink); border-left: 4px solid var(--rust); }
 .project-next-step h3 { font-size: var(--text-body); }
 

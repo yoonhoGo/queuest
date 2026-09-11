@@ -7,7 +7,6 @@ use std::{process::Command, time::Duration};
 #[serde(rename_all = "camelCase")]
 pub struct JiraQuery {
     connection_id: String,
-    project_key: String,
     site_url: String,
     email: String,
     board_id: Option<u64>,
@@ -78,18 +77,14 @@ fn validate_query(query: &JiraQuery) -> Result<(), String> {
     }
     super::keychain_identifiers("com.queuest.jira", &query.connection_id)?;
     jira_origin(&query.site_url)?;
-    let key = &query.project_key;
-    if key.is_empty()
-        || key.len() > 128
-        || !key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
-        || query.board_id == Some(0)
+    if query.board_id == Some(0)
         || (query.backlog_only && query.board_id.is_none())
         || query
             .cursor
             .as_ref()
             .is_some_and(|c| c.is_empty() || c.len() > 8192 || c.chars().any(char::is_control))
     {
-        return Err("Jira 프로젝트 키, 보드 ID 또는 페이지 정보가 올바르지 않습니다.".into());
+        return Err("Jira 보드 ID 또는 페이지 정보가 올바르지 않습니다.".into());
     }
     Ok(())
 }
@@ -222,14 +217,14 @@ pub async fn jira_issue_list(query: JiraQuery) -> Result<JiraPage, String> {
         return Err("Jira 인증 정보를 다시 저장하세요.".into());
     }
     let client = jira_client()?;
-    let jql = format!("project = \"{}\" ORDER BY updated DESC", query.project_key);
+    let jql = "assignee = currentUser() ORDER BY updated DESC";
     let request = if query.backlog_only {
         let board_id = query.board_id.ok_or("백로그 보드 ID가 필요합니다.")?;
         let url = origin
             .join(&format!("rest/software/1.0/board/{board_id}/backlog"))
             .map_err(|_| "Jira 보드 주소가 올바르지 않습니다.")?;
         let mut request = client.get(url).query(&[
-            ("jql", jql.as_str()),
+            ("jql", jql),
             ("maxResults", "100"),
             ("fields", "summary,description,status"),
         ]);
@@ -262,7 +257,7 @@ pub async fn jira_issue_list(query: JiraQuery) -> Result<JiraPage, String> {
                 .map(|item| format!("\"{}\"", item.key))
                 .collect::<Vec<_>>()
                 .join(",");
-            let backlog_jql = format!("project = \"{}\" AND key IN ({keys})", query.project_key);
+            let backlog_jql = format!("assignee = currentUser() AND key IN ({keys})");
             let url = origin
                 .join(&format!("rest/software/1.0/board/{board_id}/backlog"))
                 .map_err(|_| "Jira 보드 주소가 올바르지 않습니다.")?;
@@ -321,8 +316,8 @@ async fn request_json(
         .map_err(|_| "Jira 연결에 실패했습니다. 네트워크를 확인하세요.")?;
     if !response.status().is_success() {
         return Err(match response.status().as_u16() {
-            401 | 403 => "Jira 인증 또는 프로젝트·보드 조회 권한을 확인하세요.",
-            404 => "Jira 프로젝트 또는 보드를 찾지 못했습니다.",
+            401 | 403 => "Jira 인증 또는 티켓·보드 조회 권한을 확인하세요.",
+            404 => "Jira 티켓 또는 보드를 찾지 못했습니다.",
             429 => "Jira 요청 한도를 초과했습니다. 잠시 후 다시 시도하세요.",
             _ => "Jira 조회에 실패했습니다. 연결 설정을 확인하세요.",
         }
@@ -394,7 +389,6 @@ mod tests {
     fn approval_and_query_validation_precede_access() {
         let mut query = JiraQuery {
             connection_id: "work".into(),
-            project_key: "Q".into(),
             site_url: "https://team.atlassian.net".into(),
             email: "me@example.com".into(),
             board_id: None,
@@ -405,7 +399,7 @@ mod tests {
         assert!(validate_query(&query).unwrap_err().contains("허용"));
         query.approved = true;
         assert!(validate_query(&query).is_ok());
-        query.project_key = "Q OR project = OTHER".into();
+        query.board_id = Some(0);
         assert!(validate_query(&query).is_err());
     }
 

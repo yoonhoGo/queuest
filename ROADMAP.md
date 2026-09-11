@@ -2,7 +2,7 @@
 
 > Life is a queue of quests.
 
-Queuest는 개인 프로젝트를 `원정(프로젝트) → 스테이지(마일스톤) → 퀘스트(태스크)`로 관리하는 macOS 메뉴바 앱이다.
+Queuest는 개인의 일을 `워크스페이스 → 원정 → 스테이지 → 퀘스트`로 관리하는 macOS 메뉴바 앱이다. 코드와 DB의 `Project`는 호환성을 위한 내부 이름이며 사용자에게는 `원정`으로 표시한다.
 
 이 문서는 설계 아이디어가 아니라, 현재 레포에서 실제로 만들어야 할 기능의 순서와 완료 조건을 기록한다.
 
@@ -155,8 +155,9 @@ connectionId }`이고 JSON 값은 다음과 같다.
 `com.yoonhogo.queuest.credentials.plugin.com.queuest.jira.<connectionId>`다. HTTPS
 `*.atlassian.net` origin만 허용하고 arbitrary host/path/port injection을 막는다. 두 권한을
 명시적으로 승인한 뒤에만 Basic `base64(email:apiToken)` 인증으로
-`POST /rest/api/3/search/jql`과 `GET /rest/api/3/myself`를 호출한다. `projectKey`로 안전한
-JQL을 만들고 bounded opaque `nextPageToken`과 `isLast`를 이용해 페이지를 이어 가며,
+`POST /rest/api/3/search/jql`과 `GET /rest/api/3/myself`를 호출한다.
+`assignee = currentUser() ORDER BY updated DESC` JQL로 프로젝트 제한 없이 내 담당 티켓을
+조회하고 bounded opaque `nextPageToken`과 `isLast`를 이용해 페이지를 이어 가며,
 summary·ADF/string description·labels·updatedAt·Jira status category를
 `ExternalWorkItem`의 title/body·labels·updatedAt·open/in_progress/closed와 stable
 `externalRef`·browse `sourceUrl`로 매핑한다. `health.check`는 initialize 이후에도

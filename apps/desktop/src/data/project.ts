@@ -130,7 +130,7 @@ export async function createProject(input: NewProjectInput): Promise<CreatedProj
       };
 
   if (!workspace) {
-    throw new Error("프로젝트를 담을 워크스페이스를 찾지 못했습니다.");
+    throw new Error("원정을 담을 워크스페이스를 찾지 못했습니다.");
   }
 
   const project: Project = {

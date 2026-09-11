@@ -5,7 +5,7 @@ import "./QuestContext.css";
 
 const roles = { main: "메인", side: "서브" };
 const cadences = { once: "단발", daily: "일일", weekly: "주간" };
-const challenges = { normal: "일반", boss: "보스 토벌", raid: "레이드", event: "기간 한정 이벤트" };
+const challenges = { normal: "일반", boss: "보스 토벌", raid: "레이드" };
 const kinds = { jira: "Jira", issue: "GitHub Issue", pr: "PR 결과물", event: "Calendar 일정", reminder: "Reminder" };
 
 export function QuestContextEditor({ value, onChange, disabled }: {

@@ -1,4 +1,4 @@
-const names = { tasks: '할 일', project: '프로젝트', character: '캐릭터', plugins: '플러그인' };
+const names = { tasks: '할 일', project: '원정', character: '캐릭터', plugins: '플러그인' };
 const initial = [
   { id: 1, title: '로그인 화면 완성하기', tag: 'Queuest', xp: 30, done: false },
   { id: 2, title: '포트폴리오 정리', tag: '개인', xp: 30, done: false },
@@ -38,11 +38,11 @@ const projectTasks = [
 ];
 function projectView(index) {
   const row = (task) => taskRow({ ...task, done: projectDone.has(task.id) }, 'project', index);
-  return `<p class="breadcrumb">프로젝트 / Queuest</p><div class="view-heading">${icon('flag')}<div><h2>Queuest 만들기</h2><p>작지만 특별한, 나만의 퀘스트 앱</p></div></div>
-  <section class="stage"><div class="stage-top"><div class="stage-number">STAGE<strong>02</strong></div><div><h3>핵심 기능 구현</h3><p>더 나은 하루를 위한 핵심을 완성해요.</p></div></div><div class="progress-row">${meter(3 + projectDone.size, 6, '프로젝트 진행률', true)}<b>${Math.round((3 + projectDone.size) / 6 * 100)}%</b></div></section>
+  return `<p class="breadcrumb">원정 / Queuest</p><div class="view-heading">${icon('flag')}<div><h2>Queuest 만들기</h2><p>작지만 특별한, 나만의 퀘스트 앱</p></div></div>
+  <section class="stage"><div class="stage-top"><div class="stage-number">STAGE<strong>02</strong></div><div><h3>핵심 기능 구현</h3><p>더 나은 하루를 위한 핵심을 완성해요.</p></div></div><div class="progress-row">${meter(3 + projectDone.size, 6, '원정 진행률', true)}<b>${Math.round((3 + projectDone.size) / 6 * 100)}%</b></div></section>
   <details class="status-section doing" open><summary>진행 중 · ${projectDone.has(11) ? 0 : 1}</summary>${projectDone.has(11) ? '' : row(projectTasks[0])}</details>
   <details class="status-section" open><summary>할 일 · ${projectTasks.slice(1).filter((task) => !projectDone.has(task.id)).length}</summary>${projectTasks.slice(1).filter((task) => !projectDone.has(task.id)).map(row).join('')}</details>
-  <details class="status-section done"><summary>완료 · ${3 + projectDone.size}</summary><p class="preview-note" style="padding:12px;margin:0">프로젝트 생성 · 화면 구성 · 디자인 시안</p>${projectTasks.filter((task) => projectDone.has(task.id)).map(row).join('')}</details>
+  <details class="status-section done"><summary>완료 · ${3 + projectDone.size}</summary><p class="preview-note" style="padding:12px;margin:0">원정 생성 · 화면 구성 · 디자인 시안</p>${projectTasks.filter((task) => projectDone.has(task.id)).map(row).join('')}</details>
   <p class="preview-note">체크박스로 퀘스트를 완료해 보세요.</p>`;
 }
 function characterView() {

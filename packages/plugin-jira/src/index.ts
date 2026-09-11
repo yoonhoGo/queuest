@@ -183,11 +183,10 @@ export class JiraRestClient {
     }
 
     const connectionId = requireConnectionId(query.connectionId);
-    const projectKey = requireProjectKey(query.projectKey);
     const nextPageToken = parseNextPageToken(query.cursor, query.nextPageToken);
     const credential = await this.readCredential(connectionId);
     const payload: Record<string, unknown> = {
-      jql: buildJiraProjectJql(projectKey),
+      jql: buildJiraAssignedJql(),
       maxResults: JIRA_PAGE_SIZE,
       fields: ["summary", "description", "labels", "updated", "status"],
     };
@@ -375,13 +374,13 @@ export const createHandlers = createJiraPluginHandlers;
 export const createJIRAPluginHandlers = createJiraPluginHandlers;
 export const JIRA_PLUGIN_PROTOCOL_VERSION = PLUGIN_PROTOCOL_VERSION;
 
-export function buildJiraProjectJql(projectKey: string): string {
-  const normalized = requireProjectKey(projectKey);
-  return `project = "${normalized}" ORDER BY updated DESC`;
+export function buildJiraAssignedJql(): string {
+  return "assignee = currentUser() ORDER BY updated DESC";
 }
 
-export const buildProjectJql = buildJiraProjectJql;
-export const buildJql = buildJiraProjectJql;
+export const buildJiraProjectJql = buildJiraAssignedJql;
+export const buildProjectJql = buildJiraAssignedJql;
+export const buildJql = buildJiraAssignedJql;
 
 /**
  * Returns a canonical site origin for an Atlassian Cloud tenant. Paths, ports,
@@ -452,13 +451,11 @@ function parseGrantedPermissions(value: unknown): PluginPermissions {
 
 function parseWorkItemQuery(params: JsonObject): JiraWorkItemQuery {
   const connectionId = requireConnectionId(params.connectionId);
-  const projectKey = requireProjectKey(params.projectKey);
   const cursor = params.cursor;
   const nextPageToken = params.nextPageToken;
   parseNextPageToken(cursor, nextPageToken);
   return {
     connectionId,
-    projectKey,
     ...(typeof cursor === "string" ? { cursor } : {}),
     ...(typeof nextPageToken === "string" ? { nextPageToken } : {}),
   };
@@ -475,21 +472,6 @@ function requireConnectionId(value: unknown): string {
     /[\u0000-\u001f\u007f]/.test(normalized)
   ) {
     throw invalidInput("Jira connectionId가 유효하지 않습니다.");
-  }
-  return normalized;
-}
-
-function requireProjectKey(value: unknown): string {
-  if (typeof value !== "string") {
-    throw invalidInput("Jira projectKey가 유효하지 않습니다.");
-  }
-  const normalized = value.trim();
-  if (
-    normalized.length === 0 ||
-    normalized.length > 50 ||
-    !/^[A-Za-z][A-Za-z0-9_-]*$/.test(normalized)
-  ) {
-    throw invalidInput("Jira projectKey가 유효하지 않습니다.");
   }
   return normalized;
 }
