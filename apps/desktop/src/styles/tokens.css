@@ -1,0 +1,52 @@
+@font-face {
+  font-family: "Queuest Pixel";
+  src: url("../assets/pixel.ttf") format("truetype");
+  font-display: swap;
+}
+
+:root {
+  --ink: #39251f;
+  --ink-soft: #716159;
+  --paper: #fff5e7;
+  --paper-bright: #fffbf5;
+  --paper-cream: #fff5e7;
+  --paper-deep: #eadccc;
+  --mint: #80ccba;
+  --teal: #39776b;
+  --blue: #c8dff9;
+  --gold: #f6d571;
+  --rust: #f6bc86;
+  --error: #a44835;
+  --muted: #716159;
+  --muted-light: #716159;
+  --shadow: #8f7568;
+  --border-soft: #b49d8e;
+  --grid-line: #fffaf2;
+  --overlay: rgb(57 37 31 / 42%);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --text-caption: 11px;
+  --text-small: 12px;
+  --text-control: 13px;
+  --text-body: 14px;
+  --text-large: 16px;
+  --text-heading: 22px;
+  --text-stat: 24px;
+  --border: 2px solid var(--ink);
+  --radius: 2px;
+  --font-body: "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", monospace;
+  --font-pixel: "Queuest Pixel", monospace;
+  color: var(--ink);
+  background: var(--blue);
+  font: var(--text-body)/1.5 var(--font-body);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

@@ -24,6 +24,10 @@ macOS 메뉴바에서 Queuest 아이콘을 클릭하면 아이콘 바로 아래�
 
 ![Queuest macOS 메뉴바 팝오버 미리보기](./docs/images/queuest-menu-preview.png)
 
+## 디자인 시스템
+
+새 UI 기능은 [디자인 시스템](./docs/design-system.md)을 기준으로 구현합니다. 승인된 레트로 웹 미리보기, 공용 토큰·컴포넌트, 화면별 패턴과 검수 절차를 담고 있습니다. [AGENTS.md](./AGENTS.md)에 구현 전 필수 참고 지침을 연결했습니다.
+
 ## 구조
 
 ```text

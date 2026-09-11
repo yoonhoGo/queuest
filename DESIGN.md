@@ -1,25 +1,9 @@
-# Queuest desktop design
+# Queuest 디자인 기준
 
-## 1. Identity
-Compact Korean quest notebook in a menu bar popover. Preserve the existing paper texture, square controls, mono captions, and teal actions.
+**UI 구현의 단일 기준 문서는 [디자인 시스템](docs/design-system.md)이다.** 새 기능, 화면, 컴포넌트, 스타일을 만들거나 수정하기 전에 읽는다. 자동 작업 지침은 [AGENTS.md](AGENTS.md)에 연결되어 있다.
 
-## 2. Color
-Existing App.css tokens are the source: ink #2d2a25, ink-soft #6e665b, paper #f3ecdc, paper-bright #fffdf5, paper-cream #fff8e9, paper-deep #e5dac5, teal #176b68, gold #f4d98b, rust #d88955, error #a85c3a, muted #887e6f, muted-light #a59a89.
+2026-09-11 승인된 [레트로 웹 미리보기](previews/retro/dist/index.html)의 파란 모눈 배경, 크림색 창, 민트색 타이틀바, 금색 선택 탭, 갈색 윤곽, 픽셀 아이콘과 캐릭터를 유지한다. 원본의 카드 구조와 글자 위계도 디자인 기준에 포함된다.
 
-## 3. Typography
-Space Grotesk with Apple SD Gothic Neo for Korean; DM Mono for captions. Existing form inputs use 11px, labels 9px. Reuse existing heading, field-hint and validation-note classes. Keep Korean words together; long filesystem paths may wrap anywhere in previews.
+색상·간격·폰트의 실제 토큰은 [tokens.css](apps/desktop/src/styles/tokens.css), 창과 공용 컨트롤은 [retro-shell.css](apps/desktop/src/styles/retro-shell.css), 화면별 패턴은 [retro-content.css](apps/desktop/src/styles/retro-content.css)에 있다. 원본과 실제 앱의 의도된 차이, 접근성 기준, 새 기능 구현·검수 절차는 디자인 시스템 문서에서 관리한다.
 
-## 4. Layout
-Native window is 420px wide, at most 640px high. Header/navigation remain fixed; main-content owns vertical scrolling. Forms are one column with existing 7px gaps, 34px minimum inputs, 7px × 9px input padding. Action rows wrap. New folder/source groups inherit this form spacing.
-
-## 5. Components
-Reuse project-create-form, editor-panel, primary-button, secondary-button, form-actions, field-hint and validation-note. DirectoryField owns labelled path input plus native folder chooser and clear action. ProjectCreateForm offers existing folder or Git clone via native radio controls. Clone exposes repository address, parent folder and new directory name; the submit action clones then opens the project. Busy controls prevent duplicate operations; errors remain near the form; cancelling a chooser preserves its previous value.
-
-## 6. Motion
-No new animation. Native dialog and existing button state feedback suffice. Respect existing reduced-motion styles.
-
-## 7. Depth
-Existing paper surface and dark borders; preserve current button shadows and square corners. New groups add no independent elevation.
-
-## 8. Accessibility and scope
-Every field has a label; native radios support keyboard selection. Errors use role=alert, progress uses role=status. Focus returns from the native chooser. Long paths must not widen the window. Existing unrelated styling inconsistencies are outside this feature; no new accessibility debt is introduced intentionally.
+새 토큰이나 패턴을 도입할 때에는 디자인 시스템 문서와 공용 코드를 함께 갱신한다. 이 파일에 별도의 규칙이나 중복된 토큰 표를 추가하지 않는다.
