@@ -1,3 +1,4 @@
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R4 V5 · genre: atmospheric · macrostructure: Index-first Workbench · theme: studied-DNA (source: attached image) · nav: N5 segmented · footer: Ft2 quote · honest: pass · chrome: pass · tokens: pass · icons: pass */
 body {
   min-width: 320px;
   background-color: var(--blue);
@@ -13,6 +14,7 @@ body {
   background: var(--paper);
   box-shadow: 4px 4px 0 var(--shadow);
 }
+.popover-tip { display: none; }
 
 .topbar {
   min-height: 44px;
@@ -23,6 +25,8 @@ body {
 }
 
 .brand-lockup { gap: var(--space-2); min-width: 0; }
+.brand-copy { min-width: 0; }
+.brand-copy p { display: none; margin: 0; }
 .brand-lockup h1 { font: 16px/1.5 var(--font-pixel); letter-spacing: -1px; }
 .brand-mark, .project-token {
   width: var(--space-6);
@@ -59,6 +63,7 @@ body {
 .app-navigation button[aria-current="page"] { background: var(--gold); box-shadow: none; font-weight: 800; }
 .app-navigation button:hover { background: var(--paper-deep); }
 .app-navigation button[aria-current="page"]:hover { background: var(--gold); }
+.app-navigation .pixel-icon { display: none; }
 .main-content { max-width: none; padding: var(--space-3) var(--space-3) var(--space-6); scrollbar-gutter: auto; scrollbar-width: thin; scrollbar-color: var(--shadow) var(--paper); }
 
 h2 { font-size: var(--text-heading); line-height: 1.4; }
@@ -123,4 +128,271 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .brand-lockup h1 { font-size: 14px; }
   .brand-lockup { gap: var(--space-1); }
   .topbar-project-button { padding-inline: var(--space-1); }
+}
+
+.theme-picker { width: min(100%, 420px); }
+.theme-picker-description { margin: var(--space-2) 0 var(--space-3); }
+.theme-options { display: grid; gap: var(--space-2); }
+.theme-choice {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 72px;
+  padding: var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--paper);
+  text-align: left;
+}
+.theme-choice:hover, .theme-choice.selected { border-color: var(--ink); background: var(--paper-deep); }
+.theme-choice > span:not(.theme-swatch) { display: grid; gap: 2px; min-width: 0; }
+.theme-choice strong { font-size: var(--text-control); }
+.theme-choice small, .theme-selection-status { color: var(--muted); font-size: var(--text-small); line-height: 1.5; }
+.theme-choice em { padding: 2px var(--space-1); border: 1px solid var(--ink); background: var(--gold); color: var(--ink); font-size: var(--text-caption); font-style: normal; white-space: nowrap; }
+.theme-swatch { display: grid; grid-template-columns: repeat(3, 1fr); align-items: end; gap: 3px; height: 48px; padding: 6px; border: 1px solid var(--ink); background: var(--blue); }
+.theme-swatch i { display: block; height: 60%; border: 1px solid var(--ink); background: var(--paper-bright); }
+.theme-swatch i:nth-child(2) { height: 80%; background: var(--mint); }
+.theme-swatch i:nth-child(3) { height: 40%; background: var(--gold); }
+.theme-choice.fantasy .theme-swatch { border-color: var(--fantasy-edge); background: var(--fantasy-shell); }
+.theme-choice.fantasy .theme-swatch i { border-color: var(--fantasy-edge); background: var(--fantasy-panel-raised); }
+.theme-choice.fantasy .theme-swatch i:nth-child(2) { background: var(--fantasy-aqua); }
+.theme-choice.fantasy .theme-swatch i:nth-child(3) { background: var(--fantasy-gold); }
+.theme-selection-status { min-height: 18px; margin: var(--space-2) 0 0; }
+.theme-picker .form-actions { margin-top: var(--space-3); }
+.fantasy-quest-cta, .fantasy-quote, .compose-shortcut { display: none; }
+
+/* 별빛 모험: 단순 색상 교체가 아니라, 돌출부가 있는 대화창형 퀘스트 패널을 만든다. */
+:root[data-theme="fantasy"] {
+  --ink: var(--fantasy-mist);
+  --ink-soft: var(--fantasy-muted);
+  --paper: var(--fantasy-shell);
+  --paper-bright: var(--fantasy-panel);
+  --paper-cream: var(--fantasy-shell);
+  --paper-deep: var(--fantasy-panel-raised);
+  --mint: var(--fantasy-aqua);
+  --teal: var(--fantasy-edge-bright);
+  --blue: var(--fantasy-canvas);
+  --gold: var(--fantasy-gold);
+  --rust: var(--fantasy-gold-deep);
+  --error: var(--fantasy-danger);
+  --muted: var(--fantasy-muted);
+  --muted-light: var(--fantasy-muted);
+  --shadow: var(--fantasy-shadow);
+  --border-soft: var(--fantasy-edge);
+  --grid-line: color-mix(in srgb, var(--fantasy-edge-bright) 12%, transparent);
+  --overlay: color-mix(in srgb, var(--fantasy-shadow) 76%, transparent);
+  --border: 1px solid var(--fantasy-edge-bright);
+  --radius: 14px;
+  --fantasy-edge-dim: color-mix(in srgb, var(--fantasy-edge-bright) 55%, transparent);
+  --fantasy-edge-faint: color-mix(in srgb, var(--fantasy-edge-bright) 20%, transparent);
+  --fantasy-panel-soft: color-mix(in srgb, var(--fantasy-panel) 88%, var(--fantasy-shell));
+  --fantasy-panel-deep: color-mix(in srgb, var(--fantasy-shell) 72%, var(--fantasy-canvas));
+  --fantasy-gold-wash: color-mix(in srgb, var(--fantasy-gold) 17%, transparent);
+  --fantasy-gold-quiet: color-mix(in srgb, var(--fantasy-gold) 8%, transparent);
+  --fantasy-active-tab: color-mix(in srgb, var(--fantasy-gold) 12%, var(--fantasy-panel-deep));
+  --fantasy-aqua-wash: color-mix(in srgb, var(--fantasy-aqua) 16%, transparent);
+  --fantasy-window-shadow: color-mix(in srgb, var(--fantasy-shadow) 56%, transparent);
+  --fantasy-window-aura: color-mix(in srgb, var(--fantasy-edge-bright) 24%, transparent);
+  overflow-x: clip;
+  width: 100%;
+  height: 100%;
+  overflow-y: hidden;
+  color: var(--ink);
+  background: transparent;
+}
+
+:root[data-theme="fantasy"] body {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: transparent;
+}
+
+:root[data-theme="fantasy"] .app-shell {
+  position: relative;
+  width: calc(100% - 12px);
+  max-width: 420px;
+  height: calc(100dvh - 28px);
+  margin: 20px auto 8px;
+  overflow: visible;
+  isolation: isolate;
+  border-color: var(--fantasy-edge-bright);
+  border-radius: 17px 17px 15px 15px;
+  background:
+    radial-gradient(circle at 82% 9%, var(--fantasy-edge-faint), transparent 24%),
+    linear-gradient(180deg, var(--fantasy-panel-soft), var(--fantasy-panel-deep));
+  box-shadow: 0 18px 42px var(--fantasy-window-shadow), 0 0 22px var(--fantasy-window-aura), inset 0 0 0 1px var(--fantasy-edge-faint);
+}
+
+:root[data-theme="fantasy"] .app-shell::before {
+  content: none;
+}
+
+:root[data-theme="fantasy"] .app-shell::after {
+  content: none;
+}
+
+:root[data-theme="fantasy"] .popover-tip {
+  position: absolute;
+  z-index: 3;
+  top: -19px;
+  left: calc(50% - 24px);
+  display: block;
+  width: 48px;
+  height: 20px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+:root[data-theme="fantasy"] .popover-tip-fill {
+  fill: var(--fantasy-panel-soft);
+  stroke: none;
+}
+
+:root[data-theme="fantasy"] .popover-tip-line {
+  fill: none;
+  stroke: var(--fantasy-edge-bright);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+:root[data-theme="fantasy"] .topbar {
+  z-index: 1;
+  min-height: 76px;
+  padding: var(--space-4) var(--space-5) var(--space-2);
+  border-bottom: 0;
+  background: transparent;
+}
+
+:root[data-theme="fantasy"] .brand-lockup h1 {
+  margin: 0;
+  color: var(--fantasy-gold-soft);
+  font-family: var(--font-fantasy-display);
+  font-size: 27px;
+  font-weight: 800;
+  line-height: .95;
+  letter-spacing: -.035em;
+  text-shadow: 0 1px 0 var(--fantasy-gold-deep), 0 0 10px var(--fantasy-gold-wash);
+}
+
+:root[data-theme="fantasy"] .brand-copy { display: grid; gap: var(--space-1); }
+:root[data-theme="fantasy"] .brand-copy p { display: block; color: var(--ink-soft); font-size: 11px; line-height: 1; letter-spacing: -.01em; white-space: nowrap; }
+:root[data-theme="fantasy"] .brand-mark { width: 31px; height: 31px; color: var(--gold); filter: drop-shadow(0 0 5px var(--fantasy-gold-wash)); }
+:root[data-theme="fantasy"] .brand-mark .pixel-icon { width: 31px; height: 31px; }
+:root[data-theme="fantasy"] .topbar-actions { gap: var(--space-1); }
+:root[data-theme="fantasy"] .icon-button { color: var(--ink-soft); }
+:root[data-theme="fantasy"] .icon-button:hover, :root[data-theme="fantasy"] .pin-button.active { border-color: var(--gold); background: var(--fantasy-gold-wash); color: var(--gold); }
+:root[data-theme="fantasy"] .topbar-project-button { display: none; }
+:root[data-theme="fantasy"] .theme-button { order: 1; }
+:root[data-theme="fantasy"] .pin-button { order: 2; min-width: 34px; padding-inline: 6px; }
+:root[data-theme="fantasy"] .active-counter {
+  position: relative;
+  order: 3;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-left: var(--space-1);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--fantasy-edge-dim);
+  color: var(--ink-soft);
+}
+:root[data-theme="fantasy"] .active-counter .pixel-icon { width: 22px; height: 22px; }
+:root[data-theme="fantasy"] .active-counter > span {
+  position: absolute;
+  top: 2px;
+  right: -2px;
+  width: 7px;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--error);
+  color: transparent;
+  font-size: 0;
+}
+
+:root[data-theme="fantasy"] .app-navigation { z-index: 2; gap: var(--space-2); padding: var(--space-1) var(--space-3) var(--space-2); overflow: visible; border: 0; background: transparent; }
+:root[data-theme="fantasy"] .app-navigation button { position: relative; display: flex; align-items: center; justify-content: center; gap: var(--space-1); min-height: 36px; padding: var(--space-1); border: 1px solid var(--border-soft); border-radius: 11px; background: var(--fantasy-panel-deep); color: var(--ink-soft); font-size: 12px; }
+:root[data-theme="fantasy"] .app-navigation .pixel-icon { display: block; width: 18px; height: 18px; }
+:root[data-theme="fantasy"] .app-navigation button + button { border-left: 1px solid var(--border-soft); }
+:root[data-theme="fantasy"] .app-navigation button:hover { border-color: var(--fantasy-edge-bright); background: var(--fantasy-panel-raised); }
+:root[data-theme="fantasy"] .app-navigation button[aria-current="page"], :root[data-theme="fantasy"] .app-navigation button[aria-current="page"]:hover { border-color: var(--gold); background: var(--fantasy-active-tab); color: var(--fantasy-gold-soft); box-shadow: none; }
+:root[data-theme="fantasy"] .app-navigation button[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  bottom: -5px;
+  left: calc(50% - 4px);
+  width: 8px;
+  height: 8px;
+  border-right: 1px solid var(--gold);
+  border-bottom: 1px solid var(--gold);
+  border-radius: 2px;
+  background: var(--fantasy-active-tab);
+  transform: rotate(45deg);
+}
+
+:root[data-theme="fantasy"] .main-content {
+  z-index: 1;
+  overflow-x: clip;
+  overflow-y: auto;
+  padding: 0 var(--space-3) var(--space-6);
+  scrollbar-gutter: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--fantasy-edge-bright) transparent;
+}
+:root[data-theme="fantasy"] .main-content::-webkit-scrollbar { width: 6px; }
+:root[data-theme="fantasy"] .main-content::-webkit-scrollbar-track { background: transparent; }
+:root[data-theme="fantasy"] .main-content::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--fantasy-edge-bright);
+}
+:root[data-theme="fantasy"] .main-content::-webkit-scrollbar-thumb:hover { background: var(--fantasy-gold); }
+:root[data-theme="fantasy"] .todo-row, :root[data-theme="fantasy"] .project-todo-panel,
+:root[data-theme="fantasy"] .project-banner, :root[data-theme="fantasy"] .quest-column,
+:root[data-theme="fantasy"] .skill-panel, :root[data-theme="fantasy"] .plugin-card,
+:root[data-theme="fantasy"] .plugin-connection-row, :root[data-theme="fantasy"] .workspace-manager,
+:root[data-theme="fantasy"] .project-list-panel, :root[data-theme="fantasy"] .project-create-form,
+:root[data-theme="fantasy"] .character-completion-stat, :root[data-theme="fantasy"] .stage-node {
+  border-color: var(--border-soft);
+  border-radius: 14px;
+  background: var(--fantasy-panel-soft);
+  box-shadow: inset 0 1px 0 var(--fantasy-edge-faint);
+}
+:root[data-theme="fantasy"] .todo-row.completed { border-color: var(--fantasy-aqua-deep); background: var(--fantasy-panel-deep); }
+:root[data-theme="fantasy"] .project-banner, :root[data-theme="fantasy"] .character-sheet { border-color: var(--fantasy-edge-bright); box-shadow: inset 0 1px 0 var(--fantasy-edge-faint), 0 8px 18px var(--fantasy-window-shadow); }
+:root[data-theme="fantasy"] .workspace-chip, :root[data-theme="fantasy"] .sheet-rule,
+:root[data-theme="fantasy"] .job-badge, :root[data-theme="fantasy"] .status-pill,
+:root[data-theme="fantasy"] .card-tags > span { border-color: var(--border-soft); background: var(--fantasy-panel-raised); color: var(--ink); }
+:root[data-theme="fantasy"] .primary-button, :root[data-theme="fantasy"] .secondary-button,
+:root[data-theme="fantasy"] .small-button, :root[data-theme="fantasy"] .row-action,
+:root[data-theme="fantasy"] .advance-button { border-color: var(--border-soft); box-shadow: none; }
+:root[data-theme="fantasy"] .primary-button, :root[data-theme="fantasy"] .small-button.accent,
+:root[data-theme="fantasy"] .advance-button { background: linear-gradient(135deg, var(--fantasy-aqua), var(--fantasy-aqua-deep)); color: var(--fantasy-canvas); }
+:root[data-theme="fantasy"] .secondary-button, :root[data-theme="fantasy"] .small-button,
+:root[data-theme="fantasy"] .row-action { background: var(--fantasy-panel-raised); color: var(--ink); }
+:root[data-theme="fantasy"] .primary-button:hover, :root[data-theme="fantasy"] .secondary-button:hover,
+:root[data-theme="fantasy"] .small-button:hover, :root[data-theme="fantasy"] .row-action:hover,
+:root[data-theme="fantasy"] .advance-button:hover { border-color: var(--gold); background: var(--fantasy-gold-wash); color: var(--fantasy-gold-soft); }
+:root[data-theme="fantasy"] .progress-track, :root[data-theme="fantasy"] .xp-track,
+:root[data-theme="fantasy"] .skill-track { border-color: var(--fantasy-edge-bright); background: var(--fantasy-canvas); }
+:root[data-theme="fantasy"] .progress-track::after, :root[data-theme="fantasy"] .xp-track::after,
+:root[data-theme="fantasy"] .skill-track::after { background-image: repeating-linear-gradient(90deg, transparent 0, transparent calc(14.2857% - 1px), var(--fantasy-edge) calc(14.2857% - 1px), var(--fantasy-edge) 14.2857%); }
+:root[data-theme="fantasy"] .editor-panel, :root[data-theme="fantasy"] .confirm-dialog { border-color: var(--fantasy-edge-bright); background: var(--fantasy-panel); box-shadow: 0 18px 42px var(--fantasy-window-shadow), 0 0 20px var(--fantasy-window-aura); }
+:root[data-theme="fantasy"] .theme-choice { border-color: var(--border-soft); background: var(--fantasy-shell); color: var(--ink); }
+:root[data-theme="fantasy"] .theme-choice:hover, :root[data-theme="fantasy"] .theme-choice.selected { border-color: var(--gold); background: var(--fantasy-gold-quiet); }
+:root[data-theme="fantasy"] .theme-choice em { border-color: var(--gold); background: var(--fantasy-gold-wash); color: var(--fantasy-gold-soft); }
+
+@media (min-width: 760px) {
+  :root[data-theme="fantasy"] .app-shell { height: calc(100dvh - 32px); margin: var(--space-6) auto var(--space-2); }
+  :root[data-theme="fantasy"] .main-content { padding-inline: var(--space-3); }
+}
+
+@media (max-width: 374px) {
+  .theme-choice { grid-template-columns: 52px minmax(0, 1fr); }
+  .theme-choice em { grid-column: 2; justify-self: start; }
 }

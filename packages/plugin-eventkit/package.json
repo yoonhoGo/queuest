@@ -12,7 +12,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --experimental-strip-types --test src/index.test.ts",
-    "build:native": "native/build.sh"
+    "build:native": "native/build.sh",
+    "build:native:dev": "native/build-if-needed.sh"
   },
   "dependencies": {
     "@queuest/plugin-contracts": "0.1.0",

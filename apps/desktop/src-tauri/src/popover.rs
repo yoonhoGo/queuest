@@ -83,11 +83,6 @@ pub(super) fn position(window: &WebviewWindow) -> Result<(), String> {
         // Use AppKit end to end: Tao's physical position conversion uses
         // the old window's scale and is ambiguous across mixed-DPI screens.
         native_window.setFrame_display(target, false);
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "[popover] icon={frame:?} target={target:?} actual={:?}",
-            native_window.frame()
-        );
         Some(())
     })
     .map_err(|error| error.to_string())?
