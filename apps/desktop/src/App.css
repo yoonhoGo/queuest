@@ -1834,6 +1834,54 @@ h3 {
   opacity: 0.65;
 }
 
+.directory-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.directory-field .form-actions {
+  margin-top: 0;
+}
+
+.editor-panel > label + .directory-field {
+  margin-top: 9px;
+}
+
+.project-source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--ink-soft);
+}
+
+.project-source legend {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.project-source label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.project-source input[type="radio"] {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--teal);
+}
+
+.clone-destination {
+  overflow-wrap: anywhere;
+}
+
 .form-actions,
 .state-actions {
   display: flex;

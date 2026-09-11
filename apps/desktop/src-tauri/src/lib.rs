@@ -1,3 +1,8 @@
+mod project_clone;
+mod project_directory;
+use project_clone::clone_project_repository;
+use project_directory::{choose_project_directory, DirectoryDialogState};
+
 use std::{
     io::Read,
     path::{Path, PathBuf},
@@ -23,10 +28,8 @@ struct AgentState {
     active_child: Mutex<Option<Arc<Mutex<Child>>>>,
 }
 
-#[derive(Default)]
-struct WindowState {
-    pinned: Mutex<bool>,
-}
+mod window_state;
+use window_state::{get_window_pinned, set_window_pinned, WindowState};
 
 #[derive(Debug, Serialize)]
 struct AgentRunResult {
@@ -176,6 +179,10 @@ fn toggle_main_window(app: &tauri::AppHandle, anchor: Option<tauri::Rect>) {
     if let Some(window) = app.get_webview_window("main") {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
+        } else if app.state::<WindowState>().is_pinned().unwrap_or(false) {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
         } else {
             let anchor = anchor.or_else(|| {
                 app.tray_by_id("queuest")
@@ -217,16 +224,6 @@ fn validate_repo_path(repo_path: String) -> Result<RepoPathInfo, String> {
         path: path.to_string(),
         is_directory: true,
     })
-}
-
-#[tauri::command]
-fn set_window_pinned(state: State<'_, WindowState>, pinned: bool) -> Result<(), String> {
-    let mut current = state
-        .pinned
-        .lock()
-        .map_err(|_| "팝오버 고정 상태를 저장하지 못했습니다.".to_string())?;
-    *current = pinned;
-    Ok(())
 }
 
 fn keychain_identifiers(plugin_id: &str, connection_id: &str) -> Result<(String, String), String> {
@@ -724,7 +721,9 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AgentState::default())
         .manage(WindowState::default())
+        .manage(DirectoryDialogState::default())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -740,11 +739,9 @@ pub fn run() {
                     if let WindowEvent::Focused(false) = event {
                         let pinned = app_handle
                             .state::<WindowState>()
-                            .pinned
-                            .lock()
-                            .map(|value| *value)
+                            .is_pinned()
                             .unwrap_or(false);
-                        if !pinned {
+                        if !pinned && !app_handle.state::<DirectoryDialogState>().is_open() {
                             let _ = focus_window.hide();
                         }
                     }
@@ -790,7 +787,10 @@ pub fn run() {
             integrations::github_review_list,
             integrations::jira_issue_list,
             validate_repo_path,
+            choose_project_directory,
+            clone_project_repository,
             set_window_pinned,
+            get_window_pinned,
             discover_tools,
             discover_inventory,
             app_icon,
