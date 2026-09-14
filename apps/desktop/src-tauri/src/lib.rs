@@ -758,12 +758,15 @@ fn github_issue_list(repo_path: String) -> Result<Vec<GithubIssue>, String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(AgentState::default())
+        .manage(integrations::monitor::JiraMonitor::default())
+        .plugin(tauri_plugin_notification::init())
         .manage(WindowState::default())
         .manage(DirectoryDialogState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .setup(|app| {
+            integrations::monitor::start(app.handle().clone());
             #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -834,6 +837,9 @@ pub fn run() {
             github_issue_list,
             integrations::github_review_list,
             integrations::jira_issue_list,
+            integrations::monitor::jira_monitor_configure,
+            integrations::monitor::jira_monitor_status,
+            integrations::monitor::jira_monitor_clear,
             validate_repo_path,
             choose_project_directory,
             clone_project_repository,

@@ -75,7 +75,7 @@ test("sends Jira v3 search requests with Basic auth, JSON headers, and a stable 
   assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
     jql: 'project = "OPS" ORDER BY updated DESC',
     maxResults: JIRA_PAGE_SIZE,
-    fields: ["summary", "description", "labels", "updated", "status"],
+    fields: ["summary", "labels", "updated", "status"],
   });
 });
 
@@ -100,7 +100,7 @@ test("canonicalizes only HTTPS Atlassian Cloud origins and rejects host/path/por
   }
 });
 
-test("uses opaque bounded nextPageToken cursors and maps ADF, labels, browse URLs, and status categories", async () => {
+test("uses opaque bounded nextPageToken cursors and omits bodies while mapping labels, browse URLs, and status categories", async () => {
   const credentials = credentialStore();
   const calls: Array<{ url: string; init: RequestInit }> = [];
   let responseNumber = 0;
@@ -152,7 +152,7 @@ test("uses opaque bounded nextPageToken cursors and maps ADF, labels, browse URL
     externalRef: "jira:acme.atlassian.net/OPS-1",
     sourceUrl: "https://acme.atlassian.net/browse/OPS-1",
     title: "Open issue",
-    body: "First\nSecond\nline",
+    body: "",
     status: "open",
     labels: ["queue", "sync"],
     updatedAt: "2026-09-09T00:00:00.000Z",
@@ -165,7 +165,7 @@ test("uses opaque bounded nextPageToken cursors and maps ADF, labels, browse URL
   });
   assert.equal(secondPage.nextCursor, undefined);
   assert.equal(secondPage.items[0].status, "in_progress");
-  assert.equal(secondPage.items[0].body, "plain text");
+  assert.equal(secondPage.items[0].body, "");
   assert.equal(secondPage.items[1].status, "closed");
   assert.deepEqual(JSON.parse(String(calls[1].init.body)).nextPageToken, "opaque-token-1");
   assert.equal(calls.every(({ url }) => url === `https://acme.atlassian.net${JIRA_SEARCH_PATH}`), true);
@@ -400,7 +400,7 @@ test("does not expose API tokens in malformed response errors", async () => {
         fields: {
           summary: "broken",
           description: { type: "unexpected", token },
-          labels: [],
+          labels: { token },
           updated: "2026-09-09T00:00:00Z",
           status: { statusCategory: { key: "new" } },
         },

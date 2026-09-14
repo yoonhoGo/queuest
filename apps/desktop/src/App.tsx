@@ -87,6 +87,7 @@ import {
   savePluginConnection as saveStoredPluginConnection,
   savePluginCredential,
 } from "./data/plugin";
+import { JiraActivity } from "./components/JiraActivity";
 import { AppHeader } from "./components/AppHeader";
 import { CharacterCompletionStats } from "./components/CharacterCompletionStats";
 import { PixelIcon } from "./components/PixelIcon";
@@ -505,6 +506,7 @@ function App() {
       />
       <AppNavigation active={view} onNavigate={(next) => next === "project" ? openProjectPicker() : setView(next)} />
       <main className="main-content" ref={contentRef}>
+        <JiraActivity />
         {view === "character" ? <CharacterHome /> : view === "plugins" ? <PluginsPanel onOpenProject={openProjectPicker} /> : view === "project-picker" ? (
           <ProjectPicker
             headingRef={viewHeadingRef}
@@ -3516,6 +3518,7 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
         }}
       />
       <main className="main-content" ref={mainRef}>
+        <JiraActivity />
         {windowError && <p className="action-error" role="alert">{windowError}</p>}
         {section === "plugins" && (
           <PluginsPanel
@@ -3894,7 +3897,7 @@ function TaskCard({
         )}
       </div>
       <h4>{task.title}</h4>
-      <p>{task.body}</p>
+      {!task.externalRef?.startsWith("jira:") && <p>{task.body}</p>}
       <QuestContextSummary task={task} />
       <div className="card-tags">
         {task.skills.map((skill) => (

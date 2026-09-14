@@ -103,8 +103,8 @@ npm run check
   `secrets: ["jira"]`를 모두 승인한 뒤에만 credential/API를 사용하고, email과 API token으로
   Basic auth를 구성해 `/rest/api/3/search/jql`(POST)과 `/rest/api/3/myself`(GET)만 호출합니다.
   project JQL과 bounded opaque `nextPageToken` pagination을 사용해 Jira issue를
-  `ExternalWorkItem`으로 매핑하며, ADF 또는 문자열 description·labels·updatedAt·status
-  category·browse URL을 보존합니다. `health.check`는 초기화·권한만 확인하고 credential/API를
+  `ExternalWorkItem`으로 매핑하며, labels·updatedAt·status category·browse URL을 보존합니다.
+  description은 요청하거나 가져오지 않습니다. `health.check`는 초기화·권한만 확인하고 credential/API를
   읽지 않으며, credential/auth/not-found/rate-limit/HTTP/malformed/network 실패는 token을
   노출하지 않는 typed error와 connection state로 전달합니다. 연결 설정은 플러그인 탭에서
   저장합니다. 데스크톱 UI 가져오기는 아래의 별도 native Host adapter를 사용합니다.
@@ -203,3 +203,11 @@ Node process plugin을 실행하거나 PermissionBroker의 영구 승인 저장�
 
 API 기준: [GitHub CLI PR 검색](https://cli.github.com/manual/gh_search_prs),
 [Jira Cloud 보드 백로그](https://developer.atlassian.com/cloud/jira/software/rest/api-group-board/).
+
+### Jira 백그라운드 알림
+
+저장된 인증 정보가 있는 Jira 연결의 프로젝트 티켓을 앱 시작·연결 변경 시와 조회 완료 후 5분마다 읽기 전용으로 확인한다. 네이티브 타이머라 창을 숨겨도 앱이 실행 중이면 계속 동작한다. 앱 종료·Mac 잠자기 동안은 조회하지 않는다.
+
+각 연결의 첫 성공 조회는 비교 기준이며 알림을 보내지 않는다. 이후 새 티켓과 Jira 상태명 변경은 시스템 알림과 앱의 ‘Jira 알림’에 표시한다. 모든 페이지가 성공해야 기준을 갱신하며, 실패는 연결별로 표시하고 다음 주기에 재시도한다. 연결을 수정·삭제하면 이전 요청 결과는 무시한다. 비교 기준과 최근 알림 50개는 실행 세션에만 유지되므로 재시작하면 새 기준을 만든다. 감지는 두 조회 시점 사이의 차이에 한정된다.
+
+Jira 본문은 API 요청과 퀘스트 가져오기에서 제외하며 ‘Jira 원문’ 링크로 연다. 기존 저장 본문은 카드에서 숨기며 원본 데이터는 보존한다. 알림만으로 퀘스트를 자동 생성하거나 완료·XP를 변경하지 않는다. 시스템 알림 구현은 [Tauri notification 플러그인](https://v2.tauri.app/plugin/notification/)을 사용한다.

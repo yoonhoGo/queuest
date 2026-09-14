@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{process::Command, time::Duration};
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct JiraQuery {
     connection_id: String,
@@ -122,32 +122,6 @@ fn read_jira_credential(connection_id: &str) -> Result<JiraCredential, String> {
     }
 }
 
-fn description_text(value: &Value, depth: usize) -> String {
-    if depth > 64 {
-        return String::new();
-    }
-    if let Some(text) = value.as_str() {
-        return text.to_string();
-    }
-    let mut text = value
-        .get("text")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    if let Some(children) = value.get("content").and_then(Value::as_array) {
-        for child in children {
-            text.push_str(&description_text(child, depth + 1));
-        }
-    }
-    if matches!(
-        value.get("type").and_then(Value::as_str),
-        Some("paragraph" | "heading" | "hardBreak" | "listItem")
-    ) {
-        text.push('\n');
-    }
-    text
-}
-
 fn map_page(body: Value, origin: &reqwest::Url, backlog: bool) -> Result<JiraPage, String> {
     let invalid = || "Jira 이슈 응답을 해석하지 못했습니다.".to_string();
     let issues = body
@@ -177,7 +151,7 @@ fn map_page(body: Value, origin: &reqwest::Url, backlog: bool) -> Result<JiraPag
         items.push(JiraIssue {
             key: key.into(),
             title: fields["summary"].as_str().ok_or_else(invalid)?.into(),
-            body: description_text(&fields["description"], 0).trim().into(),
+            body: String::new(),
             status: fields["status"]["name"].as_str().unwrap_or(category).into(),
             status_category: category.into(),
             external_ref: format!("jira:{}/{key}", origin.host_str().unwrap_or_default()),
@@ -231,15 +205,14 @@ pub async fn jira_issue_list(query: JiraQuery) -> Result<JiraPage, String> {
         let mut request = client.get(url).query(&[
             ("jql", jql.as_str()),
             ("maxResults", "100"),
-            ("fields", "summary,description,status"),
+            ("fields", "summary,status"),
         ]);
         if let Some(cursor) = &query.cursor {
             request = request.query(&[("nextPageToken", cursor)]);
         }
         request
     } else {
-        let mut payload =
-            json!({"jql": jql, "maxResults": 100, "fields": ["summary", "description", "status"]});
+        let mut payload = json!({"jql": jql, "maxResults": 100, "fields": ["summary", "status"]});
         if let Some(cursor) = &query.cursor {
             payload["nextPageToken"] = json!(cursor);
         }
@@ -410,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn preserves_backlog_identity_description_and_pagination() {
+    fn preserves_backlog_identity_link_and_pagination_without_body() {
         let body = json!({"issues": [{"key": "Q-1", "fields": {"summary": "Test", "description": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Do it"}]}]}, "status": {"name": "Backlog", "statusCategory": {"key": "new"}}}}], "nextPageToken": "next", "isLast": false});
         let page = map_page(
             body,
@@ -419,7 +392,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(page.items[0].external_ref, "jira:team.atlassian.net/Q-1");
-        assert_eq!(page.items[0].body, "Do it");
+        assert!(page.items[0].body.is_empty());
+        assert_eq!(page.items[0].url, "https://team.atlassian.net/browse/Q-1");
         assert!(page.items[0].backlog);
         assert_eq!(page.next_cursor.as_deref(), Some("next"));
         assert!(map_page(
@@ -468,3 +442,6 @@ mod tests {
         }
     }
 }
+
+#[path = "jira_monitor.rs"]
+pub mod monitor;

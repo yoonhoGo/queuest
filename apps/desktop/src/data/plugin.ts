@@ -8,6 +8,7 @@ export async function loadPluginConnections(): Promise<PluginConnection[]> {
 
 export async function savePluginConnection(connection: PluginConnection): Promise<void> {
   await (await getRepository()).savePluginConnection(connection);
+  window.dispatchEvent(new Event("plugin-connections-changed"));
 }
 
 export async function deletePluginConnection(
@@ -15,6 +16,7 @@ export async function deletePluginConnection(
   connectionId: string,
 ): Promise<void> {
   await (await getRepository()).deletePluginConnection(pluginId, connectionId);
+  window.dispatchEvent(new Event("plugin-connections-changed"));
 }
 
 /** Store a provider credential through the native host Credential Store. */

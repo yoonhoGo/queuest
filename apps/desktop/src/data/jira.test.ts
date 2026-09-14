@@ -8,6 +8,8 @@ const issue: JiraIssue = { key: "Q-1", title: "Fix", body: "details", status: "T
 test("backlog import preserves identity and starts pending without tracking", () => {
   const task = jiraIssueToTask(issue, project, "m");
   assert.equal(task.milestoneId, "m");
+  assert.equal(task.body, "");
+  assert.equal(task.sourceUrl, issue.url);
   assert.equal(task.status, "todo");
   assert.equal(task.quest?.acceptance, "pending");
   assert.equal(task.quest?.tracked, false);
