@@ -149,8 +149,274 @@
 .todo-list-panel, .project-picker { padding: 0; border: 0; background: none; box-shadow: none; }
 .todo-form { align-items: stretch; }
 .todo-form .primary-button { min-height: 46px; }
+.todo-form input { order: 1; }
+.todo-form .compose-add { order: 2; }
+.compose-add > span:first-child { display: none; }
+.todo-more { position: relative; }
+.todo-more summary {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  min-height: 30px;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+.todo-more summary::-webkit-details-marker { display: none; }
+.todo-more summary:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+.todo-action-menu {
+  position: absolute;
+  z-index: var(--z-dropdown, 100);
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  gap: var(--space-1);
+  min-width: 76px;
+  padding: var(--space-1);
+  border: 1px solid var(--ink);
+  background: var(--paper-bright);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
 .editor-panel::before { content: none; }
 .project-create-form { border: 1px solid var(--ink); background: var(--paper-bright); padding: var(--space-3); }
 .project-create-form label, .project-source legend { font: var(--text-control)/1.5 var(--font-body); color: var(--ink-soft); }
 .project-create-form input:not([type="radio"]) { min-height: 40px; font: var(--text-body)/1.5 var(--font-body); background: var(--paper-bright); border: 1px solid var(--ink); }
 .project-source { border: 1px solid var(--border-soft); background: var(--paper); }
+
+/* Screenshot-study DNA: one illustrated status banner, compact quest rows, and a quiet footer. */
+:root[data-theme="fantasy"] .inbox-hero {
+  position: relative;
+  min-height: 124px;
+  margin-bottom: var(--space-2);
+  overflow: hidden;
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  border: 1px solid var(--fantasy-edge-bright);
+  border-radius: 13px;
+  background-image:
+    linear-gradient(90deg, color-mix(in srgb, var(--fantasy-shell) 97%, transparent) 0 30%, color-mix(in srgb, var(--fantasy-shell) 56%, transparent) 55%, color-mix(in srgb, var(--fantasy-shell) 12%, transparent) 100%),
+    url("../assets/fantasy-quest-banner.png");
+  background-position: center, center;
+  background-size: cover, cover;
+  box-shadow: inset 0 1px 0 var(--fantasy-edge-faint);
+}
+:root[data-theme="fantasy"] .inbox-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 58%, color-mix(in srgb, var(--fantasy-canvas) 78%, transparent));
+}
+:root[data-theme="fantasy"] .inbox-intro {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin: 0;
+}
+:root[data-theme="fantasy"] .inbox-intro h2 {
+  gap: var(--space-2);
+  color: var(--fantasy-mist);
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -.04em;
+  text-shadow: 0 1px 5px var(--fantasy-shadow);
+}
+:root[data-theme="fantasy"] .inbox-intro h2 .pixel-icon {
+  width: 33px;
+  height: 33px;
+  margin: 0;
+  color: var(--fantasy-gold-soft);
+  filter: drop-shadow(0 0 5px var(--fantasy-gold-wash));
+}
+:root[data-theme="fantasy"] .inbox-intro .pixel-icon-clipboard path:first-child { fill: color-mix(in srgb, var(--fantasy-gold-soft) 17%, transparent); }
+:root[data-theme="fantasy"] .inbox-lede {
+  margin: var(--space-1) 0 0 calc(var(--space-5) * 2);
+  color: var(--fantasy-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-shadow: 0 1px 4px var(--fantasy-shadow);
+}
+:root[data-theme="fantasy"] .inbox-progress {
+  position: absolute;
+  z-index: 2;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  left: var(--space-3);
+  gap: var(--space-2);
+  margin: 0;
+}
+:root[data-theme="fantasy"] .inbox-progress .progress-track {
+  height: 18px;
+  padding: 3px;
+  border-color: var(--fantasy-edge-bright);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fantasy-canvas) 91%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fantasy-canvas) 52%, transparent);
+}
+:root[data-theme="fantasy"] .inbox-progress .progress-track::after {
+  inset: 3px;
+  background-image: linear-gradient(90deg, transparent calc(100% - 1px), var(--fantasy-edge) 0);
+  background-size: calc(100% / var(--segment-count)) 100%;
+}
+:root[data-theme="fantasy"] .inbox-progress .progress-track span {
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--fantasy-gold), var(--fantasy-gold-soft));
+  box-shadow: 0 0 8px var(--fantasy-gold-wash);
+}
+:root[data-theme="fantasy"] .inbox-progress > span {
+  min-width: 63px;
+  color: var(--fantasy-mist);
+  font-size: 12px;
+  text-align: right;
+  text-shadow: 0 1px 4px var(--fantasy-shadow);
+}
+
+:root[data-theme="fantasy"] .todo-compose {
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--fantasy-panel-deep) 91%, transparent);
+  box-shadow: inset 0 1px 0 var(--fantasy-edge-faint);
+}
+:root[data-theme="fantasy"] .todo-form { position: relative; gap: var(--space-2); }
+:root[data-theme="fantasy"] .todo-form input {
+  order: 1;
+  min-height: 34px;
+  padding: var(--space-1) 36px var(--space-1) var(--space-1);
+  border: 0;
+  background: transparent;
+  color: var(--fantasy-mist);
+  box-shadow: none;
+}
+:root[data-theme="fantasy"] .todo-form input:focus { border-radius: 4px; outline: 2px solid var(--fantasy-gold); outline-offset: 1px; }
+:root[data-theme="fantasy"] .todo-form .compose-add {
+  order: 0;
+  display: grid;
+  place-items: center;
+  min-width: 34px;
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--fantasy-panel-raised);
+  color: var(--fantasy-mist);
+}
+:root[data-theme="fantasy"] .compose-add > span:first-child { display: inline; font-size: 21px; font-weight: 300; line-height: 1; }
+:root[data-theme="fantasy"] .compose-add-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+:root[data-theme="fantasy"] .compose-shortcut {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border: 1px solid var(--fantasy-edge-faint);
+  border-radius: 5px;
+  color: var(--fantasy-muted);
+  background: var(--fantasy-panel-raised);
+  font: 12px/1 var(--font-mono);
+}
+
+:root[data-theme="fantasy"] .todo-list-panel > .section-heading { display: none; }
+:root[data-theme="fantasy"] .todo-list { gap: var(--space-1); }
+:root[data-theme="fantasy"] .todo-row {
+  position: relative;
+  min-height: 45px;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-color: var(--border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fantasy-panel-soft) 92%, transparent);
+  box-shadow: inset 0 1px 0 var(--fantasy-edge-faint);
+}
+:root[data-theme="fantasy"] .todo-row:hover { border-color: var(--fantasy-edge-bright); background: var(--fantasy-panel-raised); }
+:root[data-theme="fantasy"] .todo-row.completed { border-color: var(--border-soft); background: color-mix(in srgb, var(--fantasy-panel-deep) 92%, transparent); }
+:root[data-theme="fantasy"] .todo-check {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  border: 2px solid var(--fantasy-mist);
+  border-radius: 4px;
+  color: var(--fantasy-canvas);
+  background: transparent;
+  font-size: 15px;
+}
+:root[data-theme="fantasy"] .todo-check[aria-pressed="true"] {
+  border-color: var(--fantasy-aqua);
+  background: var(--fantasy-aqua);
+  box-shadow: 0 0 8px var(--fantasy-aqua-wash);
+}
+:root[data-theme="fantasy"] .todo-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+:root[data-theme="fantasy"] .todo-title { color: var(--fantasy-mist); font-size: 14px; line-height: 1.35; }
+:root[data-theme="fantasy"] .completed .todo-title { color: var(--fantasy-muted); text-decoration: none; }
+:root[data-theme="fantasy"] .todo-meta {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--fantasy-aqua-deep);
+  border-radius: 6px;
+  color: var(--fantasy-aqua);
+  background: var(--fantasy-aqua-wash);
+  font-family: var(--font-body);
+  font-size: 10px;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+:root[data-theme="fantasy"] .completed .todo-meta { color: var(--fantasy-aqua); }
+:root[data-theme="fantasy"] .todo-more { flex: 0 0 auto; }
+:root[data-theme="fantasy"] .todo-more summary { width: 22px; min-height: 28px; color: var(--fantasy-muted); font-size: 16px; }
+:root[data-theme="fantasy"] .todo-action-menu {
+  z-index: 100;
+  border-color: var(--fantasy-edge-bright);
+  border-radius: 8px;
+  background: var(--fantasy-panel-raised);
+  box-shadow: 0 8px 18px var(--fantasy-window-shadow);
+}
+:root[data-theme="fantasy"] .todo-row:nth-last-child(-n + 2) .todo-action-menu { top: auto; bottom: calc(100% + var(--space-1)); }
+
+:root[data-theme="fantasy"] .fantasy-quest-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  width: 100%;
+  min-height: 44px;
+  margin: var(--space-3) 0;
+  border: 1px solid var(--fantasy-gold);
+  border-radius: 11px;
+  color: var(--fantasy-gold-soft);
+  background: linear-gradient(90deg, var(--fantasy-gold-quiet), var(--fantasy-gold-wash), var(--fantasy-gold-quiet));
+  box-shadow: 0 0 13px var(--fantasy-gold-wash), inset 0 1px 0 var(--fantasy-gold-quiet);
+}
+:root[data-theme="fantasy"] .fantasy-quest-cta strong { font-size: 14px; letter-spacing: -.02em; }
+:root[data-theme="fantasy"] .fantasy-quest-cta > span { color: var(--fantasy-gold-deep); font-size: 11px; }
+:root[data-theme="fantasy"] .fantasy-quest-cta:hover { background: var(--fantasy-gold-wash); color: var(--fantasy-gold-soft); }
+:root[data-theme="fantasy"] .fantasy-quote {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  margin: 0 1px 15px;
+  padding-top: 12px;
+  border-top: 1px solid var(--fantasy-edge-faint);
+  color: var(--fantasy-muted);
+  font-family: var(--font-fantasy-display);
+  font-size: 10px;
+  letter-spacing: .04em;
+}
+:root[data-theme="fantasy"] .fantasy-quote p { margin: 0; }
+:root[data-theme="fantasy"] .fantasy-quote span { font-family: var(--font-body); }
+
+@media (max-width: 374px) {
+  :root[data-theme="fantasy"] .brand-lockup h1 { font-size: 23px; }
+  :root[data-theme="fantasy"] .brand-copy p { font-size: 10px; }
+  :root[data-theme="fantasy"] .app-navigation button { gap: 3px; font-size: 11px; }
+  :root[data-theme="fantasy"] .app-navigation .pixel-icon { width: 16px; height: 16px; }
+  :root[data-theme="fantasy"] .inbox-hero { min-height: 118px; }
+  :root[data-theme="fantasy"] .inbox-intro h2 { font-size: 19px; }
+}
