@@ -291,7 +291,8 @@ Apple EventKit Connector도 native process와 TCC 권한 확인까지 완료했�
 ## P1 — 반복 사용 개선
 
 - [ ] 외부 플러그인 레지스트리와 서명 검토
-- [ ] 로그인 시 자동 시작
+- [x] 로그인 시 자동 시작 설정과 LaunchAgent 연결
+- [x] 서명된 자동 업데이트 설정과 updater 채널 연결
 - [ ] 전역 단축키로 팝오버 토글
 - [ ] 작업 완료·AI 귀환 알림
 - [ ] 프로젝트별 AI 병렬 실행

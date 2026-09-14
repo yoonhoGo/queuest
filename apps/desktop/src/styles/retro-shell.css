@@ -141,7 +141,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 
 .theme-picker { width: min(100%, 420px); }
+.app-settings-dialog { width: min(100%, 520px); }
 .theme-picker-description { margin: var(--space-2) 0 var(--space-3); }
+.settings-section { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--border-soft); }
+.settings-section-heading { display: grid; gap: 2px; margin-bottom: var(--space-2); }
+.settings-section-heading .eyebrow, .settings-section-heading h3 { margin: 0; }
+.settings-section-heading h3 { font-size: var(--text-large); }
 .theme-options { display: grid; gap: var(--space-2); }
 .theme-choice {
   display: grid;
@@ -171,7 +176,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .theme-choice.fantasy .theme-swatch i:nth-child(2) { background: var(--fantasy-aqua); }
 .theme-choice.fantasy .theme-swatch i:nth-child(3) { background: var(--fantasy-gold); }
 .theme-selection-status { min-height: 18px; margin: var(--space-2) 0 0; }
-.theme-picker .form-actions { margin-top: var(--space-3); }
+.theme-picker .form-actions, .app-settings-dialog .form-actions { margin-top: var(--space-3); }
+.settings-options { display: grid; gap: var(--space-2); }
+.setting-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border-soft); background: var(--paper); cursor: pointer; }
+.setting-row:hover { border-color: var(--ink); background: var(--paper-deep); }
+.setting-row > span { display: grid; gap: 2px; min-width: 0; }
+.setting-row strong { font-size: var(--text-control); }
+.setting-row small { color: var(--muted); font-size: var(--text-small); line-height: 1.5; }
+.setting-row input { width: 20px; height: 20px; margin: 0; accent-color: var(--teal); }
+.settings-update-status { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.settings-update-status .field-hint { flex: 1; min-width: 0; margin: 0; }
+.settings-update-status .small-button { flex-shrink: 0; }
 .fantasy-quest-cta, .fantasy-quote, .compose-shortcut { display: none; }
 
 /* 별빛 모험: 단순 색상 교체가 아니라, 돌출부가 있는 대화창형 퀘스트 패널을 만든다. */

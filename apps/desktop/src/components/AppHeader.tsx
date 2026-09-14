@@ -9,12 +9,12 @@ interface AppHeaderProps {
   readonly projectLabel?: string;
   readonly countLabel?: string;
   readonly onOpenSettings?: () => void;
-  readonly onOpenThemeSettings?: () => void;
+  readonly onOpenAppSettings?: () => void;
 }
 
 export function AppHeader({
   todoCount, pinned, pinPending, onTogglePinned, onOpenProject,
-  projectLabel = "프로젝트", countLabel = "완료하지 않은 인박스 할 일 수", onOpenSettings, onOpenThemeSettings,
+  projectLabel = "프로젝트", countLabel = "완료하지 않은 인박스 할 일 수", onOpenSettings, onOpenAppSettings,
 }: AppHeaderProps) {
   const draggable = !pinned && !pinPending;
   return (
@@ -36,7 +36,7 @@ export function AppHeader({
           disabled={pinPending}
           title={pinned ? "고정 해제: 드래그 이동 허용, 다른 앱을 클릭하면 숨기기" : "드래그 이동을 잠그고 항상 위에 표시"}
           onClick={onTogglePinned}><PixelIcon name="pin" /></button>
-        {onOpenThemeSettings && <button className="icon-button theme-button" type="button" aria-label="테마 선택" onClick={onOpenThemeSettings}><PixelIcon name="settings" /></button>}
+        {onOpenAppSettings && <button className="icon-button theme-button" type="button" aria-label="앱 설정" title="앱 설정" onClick={onOpenAppSettings}><PixelIcon name="settings" /></button>}
         <button className="topbar-project-button" type="button" onClick={onOpenProject}>{projectLabel}</button>
         {onOpenSettings && <button className="icon-button" type="button" aria-label="프로젝트 설정" onClick={onOpenSettings}><PixelIcon name="settings" /></button>}
       </div>

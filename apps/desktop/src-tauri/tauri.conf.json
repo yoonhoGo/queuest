@@ -34,6 +34,14 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgwOEFFNjFDMjcxMURFNjAKUldSZzNoRW5IT2FLZ0xIY0FPMmloT0Y4YWJuZlpEemwySWpRMnk2eW11OGlxQ1lKaTNkRk9qNEgK",
+      "endpoints": [
+        "https://github.com/yoonhoGo/queuest/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

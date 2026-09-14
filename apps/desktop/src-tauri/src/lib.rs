@@ -15,7 +15,9 @@ use std::{
     time::Duration,
 };
 
+mod cli;
 mod integrations;
+mod settings;
 
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "macos"))]
@@ -32,6 +34,7 @@ struct AgentState {
 }
 
 mod window_state;
+use settings::{get_app_settings, save_app_settings};
 use window_state::{get_window_pinned, set_window_pinned, WindowState};
 
 #[derive(Debug, Serialize)]
@@ -89,6 +92,13 @@ struct ToolInventory {
 const MAX_INSTALLED_APPS: usize = 500;
 
 const KEYCHAIN_NAMESPACE: &str = "com.yoonhogo.queuest.credentials";
+
+pub fn run_cli<I>(args: I) -> i32
+where
+    I: Iterator<Item = String>,
+{
+    cli::run(args)
+}
 
 #[cfg(target_os = "macos")]
 mod popover;
@@ -773,13 +783,26 @@ fn github_issue_list(repo_path: String) -> Result<Vec<GithubIssue>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(AgentState::default())
         .manage(WindowState::default())
         .manage(DirectoryDialogState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_sql::Builder::default().build());
+
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_plugin_autostart::init(
+        tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+        None,
+    ));
+
+    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
+    let builder = builder
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {
@@ -884,7 +907,9 @@ pub fn run() {
             discover_inventory,
             app_icon,
             plugin_credential_set,
-            plugin_credential_delete
+            plugin_credential_delete,
+            get_app_settings,
+            save_app_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

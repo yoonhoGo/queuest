@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, RefObject } from "react";
 import { useWindowPin } from "./useWindowPin";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { disable as disableAutostart, enable as enableAutostart } from "@tauri-apps/plugin-autostart";
+import { check as checkForUpdater } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import {
   githubIssueExternalRef,
   githubIssueToTask,
@@ -87,6 +90,12 @@ import {
   savePluginConnection as saveStoredPluginConnection,
   savePluginCredential,
 } from "./data/plugin";
+import {
+  DEFAULT_APP_SETTINGS,
+  loadAppSettings,
+  saveAppSettings,
+  type AppSettings,
+} from "./data/settings";
 import { AppHeader } from "./components/AppHeader";
 import { CharacterCompletionStats } from "./components/CharacterCompletionStats";
 import { PixelIcon } from "./components/PixelIcon";
@@ -145,7 +154,12 @@ function readStoredTheme(): AppTheme {
 function App() {
   const [view, setView] = useState<AppView>("inbox");
   const [theme, setTheme] = useState<AppTheme>(readStoredTheme);
-  const [showThemePicker, setShowThemePicker] = useState(false);
+  const [showAppSettings, setShowAppSettings] = useState(false);
+  const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const [appSettingsReady, setAppSettingsReady] = useState(false);
+  const [appSettingsError, setAppSettingsError] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState("자동 업데이트 상태를 확인하지 않았습니다.");
+  const updateCheckStartedRef = useRef(false);
   const viewHeadingRef = useRef<HTMLHeadingElement>(null);
   const contentRef = useRef<HTMLElement>(null);
   const previousViewRef = useRef<AppView>(view);
@@ -163,6 +177,89 @@ function App() {
   const [workspaceMutation, setWorkspaceMutation] = useState<WorkspaceMutation>(null);
   const [selectedProjectGraph, setSelectedProjectGraph] = useState<ProjectGraph | null>(null);
   const { pinned, pinPending, togglePinned } = useWindowPin(setActionError);
+
+  useEffect(() => {
+    let mounted = true;
+
+    loadAppSettings()
+      .then(async (loaded) => {
+        if (!mounted) {
+          return;
+        }
+        setAppSettings(loaded);
+        setAppSettingsReady(true);
+        try {
+          if (loaded.launchAtLogin) {
+            await enableAutostart();
+          } else {
+            await disableAutostart();
+          }
+        } catch (error: unknown) {
+          if (mounted) {
+            setAppSettingsError(`로그인 시 자동 실행 설정을 적용하지 못했습니다: ${readableError(error)}`);
+          }
+        }
+      })
+      .catch((error: unknown) => {
+        if (mounted) {
+          setAppSettingsReady(true);
+          setAppSettingsError(readableError(error));
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  async function performUpdateCheck(): Promise<boolean> {
+    setUpdateStatus("자동 업데이트를 확인하는 중…");
+    try {
+      const update = await checkForUpdater();
+      if (!update) {
+        setUpdateStatus("현재 최신 버전입니다.");
+        return true;
+      }
+
+      setUpdateStatus(`v${update.version} 업데이트를 설치하는 중…`);
+      await update.downloadAndInstall();
+      setUpdateStatus("업데이트를 설치했습니다. 앱을 다시 시작합니다…");
+      await relaunch();
+      return true;
+    } catch {
+      setUpdateStatus("업데이트 채널에 연결하지 못했습니다. 배포 설정을 확인하세요.");
+      return false;
+    }
+  }
+
+  useEffect(() => {
+    if (!appSettingsReady || !appSettings.autoUpdate || !import.meta.env.PROD || updateCheckStartedRef.current) {
+      return;
+    }
+
+    updateCheckStartedRef.current = true;
+    void performUpdateCheck();
+  }, [appSettingsReady, appSettings.autoUpdate]);
+
+  async function updateAppSettings(next: AppSettings): Promise<boolean> {
+    setAppSettingsError(null);
+    try {
+      if (next.launchAtLogin !== appSettings.launchAtLogin) {
+        if (next.launchAtLogin) {
+          await enableAutostart();
+        } else {
+          await disableAutostart();
+        }
+      }
+      const saved = await saveAppSettings(next);
+      setAppSettings(saved);
+      setAppSettingsReady(true);
+      return true;
+    } catch (error: unknown) {
+      setAppSettingsError(readableError(error));
+      return false;
+    }
+  }
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -484,10 +581,22 @@ function App() {
             setSelectedProjectGraph(null);
             setView("character");
           }}
-          onOpenThemeSettings={() => setShowThemePicker(true)}
+          onOpenAppSettings={() => setShowAppSettings(true)}
           windowError={actionError}
         />
-        {showThemePicker && <ThemePicker theme={theme} onChange={setTheme} onClose={() => setShowThemePicker(false)} />}
+        {showAppSettings && (
+          <AppSettingsDialog
+            theme={theme}
+            onThemeChange={setTheme}
+            settings={appSettings}
+            settingsReady={appSettingsReady}
+            settingsError={appSettingsError}
+            updateStatus={updateStatus}
+            onSettingsChange={updateAppSettings}
+            onCheckForUpdates={performUpdateCheck}
+            onClose={() => setShowAppSettings(false)}
+          />
+        )}
       </>
     );
   }
@@ -501,7 +610,7 @@ function App() {
         pinPending={pinPending}
         onTogglePinned={() => void togglePinned()}
         onOpenProject={() => openProjectPicker()}
-        onOpenThemeSettings={() => setShowThemePicker(true)}
+        onOpenAppSettings={() => setShowAppSettings(true)}
       />
       <AppNavigation active={view} onNavigate={(next) => next === "project" ? openProjectPicker() : setView(next)} />
       <main className="main-content" ref={contentRef}>
@@ -552,7 +661,19 @@ function App() {
           />
         )}
       </main>
-      {showThemePicker && <ThemePicker theme={theme} onChange={setTheme} onClose={() => setShowThemePicker(false)} />}
+      {showAppSettings && (
+        <AppSettingsDialog
+          theme={theme}
+          onThemeChange={setTheme}
+          settings={appSettings}
+          settingsReady={appSettingsReady}
+          settingsError={appSettingsError}
+          updateStatus={updateStatus}
+          onSettingsChange={updateAppSettings}
+          onCheckForUpdates={performUpdateCheck}
+          onClose={() => setShowAppSettings(false)}
+        />
+      )}
     </div>
   );
 }
@@ -595,32 +716,113 @@ function AppNavigation({ active, onNavigate }: {
   );
 }
 
-function ThemePicker({ theme, onChange, onClose }: {
+function AppSettingsDialog({
+  theme,
+  onThemeChange,
+  settings,
+  settingsReady,
+  settingsError,
+  updateStatus,
+  onSettingsChange,
+  onCheckForUpdates,
+  onClose,
+}: {
   theme: AppTheme;
-  onChange: (theme: AppTheme) => void;
+  onThemeChange: (theme: AppTheme) => void;
+  settings: AppSettings;
+  settingsReady: boolean;
+  settingsError: string | null;
+  updateStatus: string;
+  onSettingsChange: (settings: AppSettings) => Promise<boolean>;
+  onCheckForUpdates: () => Promise<boolean>;
   onClose: () => void;
 }) {
+  const [saving, setSaving] = useState(false);
+
+  async function changeSetting(field: keyof AppSettings, value: boolean): Promise<void> {
+    setSaving(true);
+    try {
+      await onSettingsChange({ ...settings, [field]: value });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="dialog-backdrop">
-      <section className="confirm-dialog theme-picker" role="dialog" aria-modal="true" aria-labelledby="theme-picker-title">
-        <p className="eyebrow">APPEARANCE</p>
-        <h2 id="theme-picker-title">테마 선택</h2>
-        <p className="theme-picker-description">화면 분위기를 바꿔도 퀘스트와 프로젝트 데이터는 그대로 유지됩니다.</p>
-        <div className="theme-options" role="group" aria-label="앱 테마">
-          <button className={`theme-choice retro ${theme === "retro" ? "selected" : ""}`} type="button" aria-pressed={theme === "retro"} onClick={() => onChange("retro")}>
-            <span className="theme-swatch" aria-hidden="true"><i /><i /><i /></span>
-            <span><strong>레트로</strong><small>모눈 종이와 민트 창</small></span>
-            {theme === "retro" && <em>사용 중</em>}
-          </button>
-          <button className={`theme-choice fantasy ${theme === "fantasy" ? "selected" : ""}`} type="button" aria-pressed={theme === "fantasy"} onClick={() => onChange("fantasy")}>
-            <span className="theme-swatch" aria-hidden="true"><i /><i /><i /></span>
-            <span><strong>별빛 모험</strong><small>밤의 남색과 금빛 퀘스트</small></span>
-            {theme === "fantasy" && <em>사용 중</em>}
-          </button>
-        </div>
-        <p className="theme-selection-status" role="status" aria-live="polite">{theme === "fantasy" ? "별빛 모험 테마를 적용했습니다." : "레트로 테마를 적용했습니다."}</p>
+      <section className="confirm-dialog app-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="app-settings-title">
+        <p className="eyebrow">APP SETTINGS</p>
+        <h2 id="app-settings-title">설정</h2>
+        <p className="theme-picker-description">화면 테마와 Queuest의 시작 동작을 관리합니다.</p>
+
+        <section className="settings-section" aria-labelledby="appearance-settings-title">
+          <div className="settings-section-heading">
+            <p className="eyebrow">APPEARANCE</p>
+            <h3 id="appearance-settings-title">테마</h3>
+          </div>
+          <p className="theme-picker-description">화면 분위기를 바꿔도 퀘스트와 프로젝트 데이터는 그대로 유지됩니다.</p>
+          <div className="theme-options" role="group" aria-label="앱 테마">
+            <button className={`theme-choice retro ${theme === "retro" ? "selected" : ""}`} type="button" aria-pressed={theme === "retro"} onClick={() => onThemeChange("retro")}>
+              <span className="theme-swatch" aria-hidden="true"><i /><i /><i /></span>
+              <span><strong>레트로</strong><small>모눈 종이와 민트 창</small></span>
+              {theme === "retro" && <em>사용 중</em>}
+            </button>
+            <button className={`theme-choice fantasy ${theme === "fantasy" ? "selected" : ""}`} type="button" aria-pressed={theme === "fantasy"} onClick={() => onThemeChange("fantasy")}>
+              <span className="theme-swatch" aria-hidden="true"><i /><i /><i /></span>
+              <span><strong>별빛 모험</strong><small>밤의 남색과 금빛 퀘스트</small></span>
+              {theme === "fantasy" && <em>사용 중</em>}
+            </button>
+          </div>
+          <p className="theme-selection-status" role="status" aria-live="polite">{theme === "fantasy" ? "별빛 모험 테마를 적용했습니다." : "레트로 테마를 적용했습니다."}</p>
+        </section>
+
+        <section className="settings-section" aria-labelledby="startup-settings-title">
+          <div className="settings-section-heading">
+            <p className="eyebrow">UPDATES & STARTUP</p>
+            <h3 id="startup-settings-title">업데이트와 시작</h3>
+          </div>
+          <div className="settings-options">
+            <label className="setting-row">
+              <span>
+                <strong>자동 업데이트</strong>
+                <small>새 버전을 확인하고 서명된 업데이트를 자동으로 설치합니다.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.autoUpdate}
+                disabled={!settingsReady || saving}
+                onChange={(event) => void changeSetting("autoUpdate", event.target.checked)}
+              />
+            </label>
+            <label className="setting-row">
+              <span>
+                <strong>로그인 시 자동 실행</strong>
+                <small>macOS에 로그인하면 Queuest 메뉴바 앱을 시작합니다.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.launchAtLogin}
+                disabled={!settingsReady || saving}
+                onChange={(event) => void changeSetting("launchAtLogin", event.target.checked)}
+              />
+            </label>
+          </div>
+          <div className="settings-update-status">
+            <p className="field-hint" role="status" aria-live="polite">{settingsReady ? updateStatus : "앱 설정을 불러오는 중…"}</p>
+            <button
+              className="small-button"
+              type="button"
+              disabled={!settingsReady || !settings.autoUpdate || saving}
+              onClick={() => void onCheckForUpdates()}
+            >
+              지금 확인
+            </button>
+          </div>
+        </section>
+
+        {settingsError && <p className="action-error" role="alert">{settingsError}</p>}
         <div className="form-actions">
-          <button className="secondary-button" type="button" onClick={onClose}>닫기</button>
+          <button className="secondary-button" type="button" onClick={onClose} disabled={saving}>닫기</button>
         </div>
       </section>
     </div>
@@ -3082,10 +3284,10 @@ interface ProjectBoardProps {
   onBackToInbox: () => void;
   onProjectDeleted: () => void;
   onOpenCharacter: () => void;
-  onOpenThemeSettings: () => void;
+  onOpenAppSettings: () => void;
 }
 
-function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox, onProjectDeleted, onOpenCharacter, onOpenThemeSettings, windowError }: ProjectBoardProps) {
+function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox, onProjectDeleted, onOpenCharacter, onOpenAppSettings, windowError }: ProjectBoardProps) {
   const [section, setSection] = useState<"project" | "plugins">("project");
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [section]);
@@ -3501,7 +3703,7 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
         pinned={pinned} pinPending={pinPending} onTogglePinned={onTogglePinned}
         onOpenProject={onBackToInbox} projectLabel="인박스"
         onOpenSettings={() => { setSection("project"); setShowProjectSettings(true); }}
-        onOpenThemeSettings={onOpenThemeSettings} />
+        onOpenAppSettings={onOpenAppSettings} />
 
       <AppNavigation
         active={section}

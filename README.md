@@ -68,6 +68,36 @@ npm run tauri -- dev
 npm run check
 ```
 
+## CLI 설치
+
+`.app` 번들을 `/Applications`에 복사하지 않고 CLI 진입점을 설치하려면 레포 루트에서
+다음 명령을 실행합니다.
+
+```bash
+sh scripts/install.sh
+```
+
+기본 설치 위치는 `$HOME/.local/bin/queuest`이며, 다른 위치는 `--prefix`로 지정할 수
+있습니다. 설치 스크립트는 웹 자산과 native helper를 준비한 뒤 Tauri 실행 파일을
+`$prefix/lib/queuest/queuest`에 복사하고 `queuest` CLI를 `$prefix/bin`에 설치합니다.
+`queuest`를 인자 없이 실행하면 메뉴바 앱을 열고, 설정을 CLI에서 확인하거나 바꾸려면
+다음 명령을 사용합니다.
+
+```bash
+queuest settings
+queuest settings auto-update on
+queuest settings launch-at-login on
+```
+
+앱의 설정 화면에서도 같은 `자동 업데이트`와 `로그인 시 자동 실행` 값을 편집할 수
+있습니다. 앱 설정은 `$HOME/Library/Application Support/Queuest/settings.json`에 저장하며
+credential은 저장하지 않습니다.
+
+자동 업데이트는 서명된 Tauri 업데이트만 설치합니다. 업데이트 채널은 GitHub Releases의
+`latest.json`을 사용하고, 릴리스 빌드에서는 `apps/desktop/src-tauri/tauri.release.conf.json`
+과 `TAURI_SIGNING_PRIVATE_KEY_PATH`를 사용해 updater artifact를 생성해야 합니다. private
+key는 레포에 저장하지 않습니다.
+
 기능 구현 순서는 [ROADMAP.md](./ROADMAP.md)에 기록되어 있습니다.
 
 ## 범위 메모

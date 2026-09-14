@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+EXECUTABLE="$SCRIPT_DIR/../lib/queuest/queuest"
+
+if [ ! -x "$EXECUTABLE" ]; then
+  echo "Queuest 실행 파일을 찾지 못했습니다: $EXECUTABLE" >&2
+  echo "먼저 sh install.sh 로 설치하세요." >&2
+  exit 1
+fi
+
+case "${1:-}" in
+  ""|start)
+    if [ "$#" -gt 0 ]; then
+      shift
+    fi
+    exec "$EXECUTABLE" "$@"
+    ;;
+  --cli)
+    shift
+    exec "$EXECUTABLE" --cli "$@"
+    ;;
+  help|--help|-h|version|--version|-V|settings)
+    exec "$EXECUTABLE" --cli "$@"
+    ;;
+  *)
+    exec "$EXECUTABLE" "$@"
+    ;;
+esac
