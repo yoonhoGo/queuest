@@ -23,6 +23,23 @@
   --border-soft: #b49d8e;
   --grid-line: #fffaf2;
   --overlay: rgb(57 37 31 / 42%);
+  /* 별빛 모험의 표면 계층. 테마가 아닐 때에도 테마 선택 미리보기에 쓴다. */
+  --fantasy-canvas: #07111c;
+  --fantasy-shell: #0b1622;
+  --fantasy-panel: #101f2e;
+  --fantasy-panel-raised: #172b3e;
+  --fantasy-edge: #315675;
+  --fantasy-edge-bright: #52789d;
+  --fantasy-gold: #f6c75d;
+  --fantasy-gold-soft: #ffe7ad;
+  --fantasy-gold-deep: #6c4619;
+  --fantasy-aqua: #54dcca;
+  --fantasy-aqua-deep: #248a91;
+  --fantasy-mist: #eef4ff;
+  --fantasy-muted: #aebed4;
+  --fantasy-shadow: #03080d;
+  --fantasy-danger: #ff8f83;
+  --font-fantasy-display: "Iowan Old Style", "Palatino Linotype", Palatino, ui-serif, serif;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
