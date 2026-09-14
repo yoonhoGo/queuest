@@ -13,6 +13,15 @@ body {
   border-radius: var(--radius);
   background: var(--paper);
   box-shadow: 4px 4px 0 var(--shadow);
+  -webkit-user-select: none;
+  user-select: none;
+}
+.app-shell input:not([type="checkbox"]):not([type="radio"]),
+.app-shell textarea,
+.app-shell [contenteditable="true"],
+.app-shell [contenteditable="plaintext-only"] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 .popover-tip { display: none; }
 .nav-tip { display: none; }
