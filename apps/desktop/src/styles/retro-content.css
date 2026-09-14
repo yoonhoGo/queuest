@@ -420,3 +420,9 @@
   :root[data-theme="fantasy"] .inbox-hero { min-height: 118px; }
   :root[data-theme="fantasy"] .inbox-intro h2 { font-size: 19px; }
 }
+
+/* Keep the Jira source action readable beside long Korean ticket titles. */
+.jira-source-link {
+  flex-shrink: 0;
+  white-space: nowrap;
+}

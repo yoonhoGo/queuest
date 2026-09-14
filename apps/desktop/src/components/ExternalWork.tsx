@@ -118,7 +118,7 @@ export function JiraImportPanel({ project, milestones, tasks, defaultMilestoneId
       <label className="github-issue-select"><input type="checkbox" disabled={existing.has(item.externalRef) || submitting || loading} checked={!existing.has(item.externalRef) && selected.has(item.externalRef)} onChange={e => {
         const checked = e.target.checked; setSelected(current => { const next = new Set(current); if (checked) next.add(item.externalRef); else next.delete(item.externalRef); return next; });
       }} /><span className="github-issue-copy"><strong>{item.key} · {item.title}</strong><small>{item.status}{item.backlog ? " · 미수락으로 저장" : ""}{existing.has(item.externalRef) ? " · 이미 가져옴" : ""}</small></span></label>
-      <button type="button" className="row-action" onClick={() => void openUrl(item.url).catch(() => setError("Jira 링크를 열지 못했습니다."))}>원본</button>
+      <button type="button" className="row-action jira-source-link" onClick={() => void openUrl(item.url).catch(() => setError("Jira 링크를 열지 못했습니다."))}>Jira 원문 ↗</button>
     </div>)}</div>
     <div className="form-actions"><button type="button" className="primary-button" disabled={loading || submitting || !milestoneId || !selectedNew.length} onClick={() => void importSelected()}>{submitting ? "저장 중…" : "선택한 티켓 가져오기"}</button>
       <button type="button" className="small-button" disabled={loading || submitting} onClick={onCancel}>닫기</button></div>
@@ -134,11 +134,11 @@ export function PendingQuestPanel({ tasks, submitting, onAccept, onEdit, onOpenS
   return <section className="editor-panel" aria-label="미수락 퀘스트">
     <h3>미수락 퀘스트</h3><p className="field-hint">Jira 백로그에서 가져온 제안입니다. 수락하면 대기 퀘스트가 됩니다.</p>
     {pending.map(task => <article className="github-issue-row pending-quest-row" key={task.id}>
-      <div className="github-issue-copy"><strong>{task.title}</strong><small>{task.body}</small></div>
+      <div className="github-issue-copy"><strong>{task.title}</strong>{!task.externalRef?.startsWith("jira:") && <small>{task.body}</small>}</div>
       <div className="card-actions">
         <button type="button" className="small-button" disabled={submitting} onClick={() => void onAccept(task)}>수락</button>
         <button type="button" className="row-action" disabled={submitting} onClick={() => onEdit(task)}>편집</button>
-        <button type="button" className="row-action" onClick={() => onOpenSource(task)}>원본</button>
+        <button type="button" className="row-action" onClick={() => onOpenSource(task)}>Jira 원문 ↗</button>
         <button type="button" className="row-action danger" disabled={submitting} onClick={() => onDelete(task)}>삭제</button>
       </div>
     </article>)}

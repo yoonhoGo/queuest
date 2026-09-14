@@ -189,7 +189,7 @@ export class JiraRestClient {
     const payload: Record<string, unknown> = {
       jql: buildJiraProjectJql(projectKey),
       maxResults: JIRA_PAGE_SIZE,
-      fields: ["summary", "description", "labels", "updated", "status"],
+      fields: ["summary", "labels", "updated", "status"],
     };
     if (nextPageToken !== undefined) {
       payload.nextPageToken = nextPageToken;
@@ -626,7 +626,7 @@ function mapIssue(
 
   const externalId = parseIssueId(issue.id, issueKey);
   const title = requiredResponseText(fields.summary, "summary");
-  const body = mapDescription(fields.description);
+  const body = "";
   const labels = mapLabels(fields.labels);
   const status = mapStatus(fields.status);
   const updatedAt = fields.updated;
@@ -673,64 +673,6 @@ function requiredResponseText(value: unknown, field: string): string {
     throw malformedResponse(`Jira issue ${field}가 유효하지 않습니다.`);
   }
   return value;
-}
-
-function mapDescription(value: unknown): string {
-  if (value === undefined || value === null) {
-    return "";
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  if (!isRecord(value) || value.type !== "doc") {
-    throw malformedResponse("Jira issue description이 문자열 또는 ADF 문서가 아닙니다.");
-  }
-  if (value.version !== undefined && value.version !== 1) {
-    throw malformedResponse("Jira ADF description version이 유효하지 않습니다.");
-  }
-  if (!Array.isArray(value.content)) {
-    throw malformedResponse("Jira ADF description content가 유효하지 않습니다.");
-  }
-  return value.content.map((node) => mapAdfNode(node)).join("\n");
-}
-
-const ADF_BLOCK_CONTAINERS = new Set([
-  "doc",
-  "blockquote",
-  "bulletList",
-  "orderedList",
-  "listItem",
-  "table",
-  "tableRow",
-  "tableCell",
-  "tableHeader",
-  "panel",
-  "expand",
-  "taskList",
-  "taskItem",
-]);
-
-function mapAdfNode(value: unknown): string {
-  if (!isRecord(value) || typeof value.type !== "string") {
-    throw malformedResponse("Jira ADF node가 유효하지 않습니다.");
-  }
-  if (value.type === "text") {
-    if (typeof value.text !== "string") {
-      throw malformedResponse("Jira ADF text node가 유효하지 않습니다.");
-    }
-    return value.text;
-  }
-  if (value.type === "hardBreak") {
-    return "\n";
-  }
-  if (value.content === undefined) {
-    return "";
-  }
-  if (!Array.isArray(value.content)) {
-    throw malformedResponse("Jira ADF node content가 유효하지 않습니다.");
-  }
-  const children = value.content.map((node) => mapAdfNode(node));
-  return children.join(ADF_BLOCK_CONTAINERS.has(value.type) ? "\n" : "");
 }
 
 function mapLabels(value: unknown): string[] {

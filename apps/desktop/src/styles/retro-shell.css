@@ -91,7 +91,7 @@ h2 .pixel-icon { width: 28px; height: 28px; }
 button { cursor: pointer; }
 button:not(:disabled):active { transform: translate(1px, 1px); }
 button:disabled { cursor: not-allowed; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
 .primary-button, .secondary-button, .small-button, .row-action, .advance-button, .danger-button {
   border: 1px solid var(--ink);
   border-radius: var(--radius);
