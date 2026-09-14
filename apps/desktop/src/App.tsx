@@ -559,9 +559,9 @@ function App() {
 
 function PopoverTip() {
   return (
-    <svg className="popover-tip" viewBox="0 0 64 22" aria-hidden="true" preserveAspectRatio="none">
-      <path className="popover-tip-fill" d="M13 22V18H14C18 18 20 16 23 13L29 6C30 4 31 3 32 3C33 3 34 4 35 6L41 13C44 16 46 18 50 18H51V22Z" />
-      <path className="popover-tip-line" d="M14 18C18 18 20 16 23 13L29 6C30 4 31 3 32 3C33 3 34 4 35 6L41 13C44 16 46 18 50 18" />
+    <svg className="popover-tip" viewBox="0 0 408 630" aria-hidden="true" preserveAspectRatio="none">
+      <path className="popover-tip-fill" d="M180 22V18.5C185 18.5 188 16 191 13L199 5C201 3 202 2 204 2C206 2 207 3 209 5L217 13C220 16 223 18.5 228 18.5V22Z" />
+      <path className="popover-tip-line" d="M17 18.5H180C185 18.5 188 16 191 13L199 5C201 3 202 2 204 2C206 2 207 3 209 5L217 13C220 16 223 18.5 228 18.5H391C400 18.5 407.5 26 407.5 35V614C407.5 622.5 401 629.5 392.5 629.5H15.5C7 629.5 .5 622.5 .5 614V35C.5 26 8 18.5 17 18.5Z" />
     </svg>
   );
 }
@@ -587,7 +587,7 @@ function AppNavigation({ active, onNavigate }: {
           onClick={() => onNavigate(id)}>
           <PixelIcon name={icon} /><span>{label}</span>
           <svg className="nav-tip" viewBox="0 0 28 11" aria-hidden="true" preserveAspectRatio="none">
-            <path className="nav-tip-fill" d="M7 0H21V2H20C18 2 17 3 16 5L15 7C14.6 8 14.3 8.5 14 8.5C13.7 8.5 13.4 8 13 7L12 5C11 3 10 2 8 2H7Z" />
+            <path className="nav-tip-fill" d="M8 0H20V2C18 2 17 3 16 5L15 7C14.6 8 14.3 8.5 14 8.5C13.7 8.5 13.4 8 13 7L12 5C11 3 10 2 8 2Z" />
             <path className="nav-tip-line" d="M8 2C10 2 11 3 12 5L13 7C13.4 8 13.7 8.5 14 8.5C14.3 8.5 14.6 8 15 7L16 5C17 3 18 2 20 2" />
           </svg>
         </button>
