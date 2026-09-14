@@ -267,8 +267,8 @@ transport는 request id 상관관계, 요청 타임아웃, 잘못된 JSON·응�
 포함되지 않는다.
 
 Jira process의 `initialize`는 `network: ["*.atlassian.net"]`와 `secrets: ["jira"]`가
-모두 승인된 경우에만 성공한다. `source.work-items.list`는 `projectKey`로
-`project = "<projectKey>" ORDER BY updated DESC` JQL을 만들고
+모두 승인된 경우에만 성공한다. `source.work-items.list`는 프로젝트 키를 요구하지 않고
+`assignee = currentUser() ORDER BY updated DESC` JQL을 만들어
 `POST /rest/api/3/search/jql`을 호출한다. Jira 응답의 `nextPageToken`을 bounded opaque
 cursor로 전달하고 `isLast`가 false면 다음 페이지를 요청하며, 마지막 페이지에는
 `nextCursor`를 만들지 않는다. `connection.status`만 credential을 읽어

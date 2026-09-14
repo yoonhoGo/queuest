@@ -832,6 +832,7 @@ pub fn run() {
             run_agent,
             cancel_agent,
             github_issue_list,
+            integrations::github_connection_issue_list,
             integrations::github_review_list,
             integrations::jira_issue_list,
             validate_repo_path,

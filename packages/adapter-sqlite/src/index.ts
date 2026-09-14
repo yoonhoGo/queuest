@@ -194,6 +194,15 @@ function readSkills(value: string): string[] {
   }
 }
 
+function readQuestContext(value?: string | null): Task["quest"] {
+  if (!value) return undefined;
+  const parsed = JSON.parse(value) as Record<string, unknown>;
+  if (parsed.challenge === "event") {
+    parsed.challenge = "normal";
+  }
+  return parsed as unknown as Task["quest"];
+}
+
 function toTask(row: TaskRow): Task {
   return {
     id: row.id,
@@ -206,7 +215,7 @@ function toTask(row: TaskRow): Task {
     blocked: Boolean(row.blocked),
     ...(row.external_ref ? { externalRef: row.external_ref } : {}),
     ...(row.source_url ? { sourceUrl: row.source_url } : {}),
-    ...(row.quest_context ? { quest: JSON.parse(row.quest_context) as Task["quest"] } : {}),
+    ...(row.quest_context ? { quest: readQuestContext(row.quest_context) } : {}),
   };
 }
 
@@ -240,7 +249,7 @@ function toProjectTodo(row: ProjectTodoRow): ProjectTodo {
       blocked: Boolean(row.task_blocked),
       ...(row.task_external_ref ? { externalRef: row.task_external_ref } : {}),
       ...(row.task_source_url ? { sourceUrl: row.task_source_url } : {}),
-      ...(row.task_quest_context ? { quest: JSON.parse(row.task_quest_context) as Task["quest"] } : {}),
+      ...(row.task_quest_context ? { quest: readQuestContext(row.task_quest_context) } : {}),
     },
   };
 }

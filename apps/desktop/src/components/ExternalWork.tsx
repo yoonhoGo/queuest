@@ -73,7 +73,7 @@ export function JiraImportPanel({ project, milestones, tasks, defaultMilestoneId
     if (!cursor) { reset(); }
     try {
       const page = await invoke<JiraPage>("jira_issue_list", { query: {
-        connectionId, projectKey: connection.config.projectKey, siteUrl: connection.config.siteUrl,
+        connectionId, siteUrl: connection.config.siteUrl,
         email: connection.config.email, boardId, backlogOnly: mode === "backlog", cursor, approved: true,
       } });
       if (!mounted.current) return;
@@ -94,16 +94,16 @@ export function JiraImportPanel({ project, milestones, tasks, defaultMilestoneId
     {connections.length === 0 && <p>플러그인 화면에서 Jira 연결을 먼저 저장하세요.</p>}
     <div className="editor-grid">
       <label>Jira 연결<select value={connectionId} disabled={loading || submitting} onChange={e => { setConnectionId(e.target.value); reset(); }}>
-        {connections.map(item => <option key={item.connectionId} value={item.connectionId}>{item.label} · {item.config.projectKey}</option>)}
+        {connections.map(item => <option key={item.connectionId} value={item.connectionId}>{item.label}</option>)}
       </select></label>
       <label>가져올 범위<select value={mode} disabled={loading || submitting} onChange={e => { setMode(e.target.value as typeof mode); reset(); }}>
-        <option value="project">프로젝트 티켓</option><option value="backlog">보드 백로그 → 미수락 퀘스트</option>
+        <option value="project">내 담당 티켓</option><option value="backlog">보드 백로그 → 미수락 퀘스트</option>
       </select></label>
       <label>저장할 스테이지<select value={milestoneId} disabled={submitting} onChange={e => setMilestoneId(e.target.value)}>
         {milestones.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select></label>
     </div>
-    <p className="field-hint">{mode === "backlog" ? "백로그 티켓은 미수락으로 저장됩니다. 퀘스트를 수락한 뒤 진행할 수 있습니다." : "Jira 진행 중은 진행 중으로, 완료는 검토 대기로 가져옵니다. 보드 ID가 설정되어 있으면 해당 보드의 백로그 티켓은 자동으로 미수락 처리합니다. 보드 ID가 없으면 백로그 여부를 구분하지 않습니다."}</p>
+    <p className="field-hint">내가 담당자로 지정된 Jira 티켓만 최근 업데이트 순으로 조회합니다. {mode === "backlog" ? "선택한 보드의 백로그 티켓은 미수락으로 저장되며, 수락한 뒤 진행할 수 있습니다." : "진행 중은 진행 중으로, 완료는 검토 대기로 가져옵니다. 보드 ID가 설정되어 있으면 해당 보드의 백로그 티켓은 자동으로 미수락 처리합니다."}</p>
     <p className="field-hint">조회 시 이 연결의 Keychain 인증 정보와 Jira 사이트({connection?.config.siteUrl ?? "미설정"}) 접근을 허용합니다. Jira 원본은 변경하지 않습니다.</p>
     <div className="import-toolbar">
       <button type="button" className="small-button" disabled={!connection || loading || submitting} onClick={() => void fetchPage()}>접근 허용하고 조회</button>
@@ -113,7 +113,7 @@ export function JiraImportPanel({ project, milestones, tasks, defaultMilestoneId
     </div>
     {loading && <p role="status">Jira 티켓을 불러오는 중…</p>}
     {error && <p role="alert" className="validation-note">{error}</p>}
-    {loaded && !items.length && <p role="status">조회 가능한 티켓이 없습니다. 프로젝트·보드와 접근 권한을 확인하세요.</p>}
+    {loaded && !items.length && <p role="status">조회 가능한 티켓이 없습니다. 원정·보드와 접근 권한을 확인하세요.</p>}
     <div className="github-issue-list">{items.map(item => <div className="github-issue-row" key={item.externalRef}>
       <label className="github-issue-select"><input type="checkbox" disabled={existing.has(item.externalRef) || submitting || loading} checked={!existing.has(item.externalRef) && selected.has(item.externalRef)} onChange={e => {
         const checked = e.target.checked; setSelected(current => { const next = new Set(current); if (checked) next.add(item.externalRef); else next.delete(item.externalRef); return next; });

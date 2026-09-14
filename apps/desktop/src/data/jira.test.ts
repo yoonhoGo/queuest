@@ -3,7 +3,7 @@ import test from "node:test";
 import { jiraIssueToTask } from "./jira.ts";
 import type { JiraIssue } from "./jira.ts";
 const project = { id: "p", workspaceId: "w", name: "Test", skills: ["typescript"] };
-const issue: JiraIssue = { key: "Q-1", title: "Fix", body: "details", status: "To Do", statusCategory: "new", externalRef: "jira:team.atlassian.net/Q-1", url: "https://team.atlassian.net/browse/Q-1", backlog: true };
+const issue: JiraIssue = { key: "Q-1", title: "Fix", body: "details", status: "To Do", statusCategory: "new", externalRef: "jira:team.atlassian.net/Q-1", url: "https://team.atlassian.net/browse/Q-1", backlog: true, issueType: "Task", isEpic: false };
 
 test("backlog import preserves identity and starts pending without tracking", () => {
   const task = jiraIssueToTask(issue, project, "m");
@@ -16,9 +16,10 @@ test("backlog import preserves identity and starts pending without tracking", ()
   assert.equal(jiraIssueToTask(issue, project, "other").externalRef, task.externalRef);
 });
 
-test("normal import maps progress but never bypasses human completion", () => {
+test("normal import maps progress and resolved Jira work to completion", () => {
   assert.equal(jiraIssueToTask({ ...issue, backlog: false, statusCategory: "indeterminate" }, project, "m").status, "doing");
   const done = jiraIssueToTask({ ...issue, backlog: false, statusCategory: "done" }, project, "m");
-  assert.equal(done.status, "review");
+  assert.equal(done.status, "done");
   assert.equal(done.quest?.acceptance, "accepted");
+  assert.equal(jiraIssueToTask({ ...issue, statusCategory: "done" }, project, "m").status, "done");
 });

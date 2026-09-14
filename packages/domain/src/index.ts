@@ -61,7 +61,7 @@ export interface QuestContext {
   nextAction: string;
   role: "main" | "side";
   cadence: "once" | "daily" | "weekly";
-  challenge: "normal" | "boss" | "raid" | "event";
+  challenge: "normal" | "boss" | "raid";
   tracked: boolean;
   successCriteria: string;
   scheduledAt: string;

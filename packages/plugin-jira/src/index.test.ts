@@ -17,7 +17,7 @@ import {
   JIRA_USER_AGENT,
   JiraPluginError,
   JiraRestClient,
-  buildJiraProjectJql,
+  buildJiraAssignedJql,
   createJiraPluginHandlers,
   validateJiraSiteUrl,
 } from "./index.ts";
@@ -61,7 +61,7 @@ test("sends Jira v3 search requests with Basic auth, JSON headers, and a stable 
     },
   });
 
-  await client.listWorkItems({ connectionId: "connection-1", projectKey: "OPS" });
+  await client.listWorkItems({ connectionId: "connection-1" });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, `https://acme.atlassian.net${JIRA_SEARCH_PATH}`);
@@ -73,7 +73,7 @@ test("sends Jira v3 search requests with Basic auth, JSON headers, and a stable 
     "User-Agent": JIRA_USER_AGENT,
   });
   assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
-    jql: 'project = "OPS" ORDER BY updated DESC',
+    jql: "assignee = currentUser() ORDER BY updated DESC",
     maxResults: JIRA_PAGE_SIZE,
     fields: ["summary", "description", "labels", "updated", "status"],
   });
@@ -143,7 +143,7 @@ test("uses opaque bounded nextPageToken cursors and maps ADF, labels, browse URL
     },
   });
 
-  const firstPage = await client.listWorkItems({ connectionId: "connection-1", projectKey: "OPS" });
+  const firstPage = await client.listWorkItems({ connectionId: "connection-1" });
   assert.equal(firstPage.nextCursor, "opaque-token-1");
   assert.deepEqual(firstPage.items[0], {
     providerId: "jira",
@@ -160,7 +160,6 @@ test("uses opaque bounded nextPageToken cursors and maps ADF, labels, browse URL
 
   const secondPage = await client.listWorkItems({
     connectionId: "connection-1",
-    projectKey: "OPS",
     cursor: firstPage.nextCursor,
   });
   assert.equal(secondPage.nextCursor, undefined);
@@ -173,7 +172,6 @@ test("uses opaque bounded nextPageToken cursors and maps ADF, labels, browse URL
   await assert.rejects(
     client.listWorkItems({
       connectionId: "connection-1",
-      projectKey: "OPS",
       cursor: "x".repeat(JIRA_MAX_NEXT_PAGE_TOKEN_LENGTH + 1),
     }),
     (error: unknown) => error instanceof JiraPluginError && error.code === JIRA_ERROR_CODES.invalidInput,
@@ -181,12 +179,8 @@ test("uses opaque bounded nextPageToken cursors and maps ADF, labels, browse URL
   assert.equal(calls.length, 2, "an invalid cursor must not issue another request");
 });
 
-test("builds a safe project JQL and rejects JQL injection", () => {
-  assert.equal(buildJiraProjectJql("TEAM_1"), 'project = "TEAM_1" ORDER BY updated DESC');
-  assert.throws(
-    () => buildJiraProjectJql("TEAM OR project = OTHER"),
-    (error: unknown) => error instanceof JiraPluginError && error.code === JIRA_ERROR_CODES.invalidInput,
-  );
+test("builds a current-user JQL without a project restriction", () => {
+  assert.equal(buildJiraAssignedJql(), "assignee = currentUser() ORDER BY updated DESC");
 });
 
 test("denies both API and credential use until both manifest permissions are granted", async () => {
@@ -206,7 +200,7 @@ test("denies both API and credential use until both manifest permissions are gra
   });
 
   await assert.rejects(
-    client.listWorkItems({ connectionId: "connection-1", projectKey: "OPS" }),
+    client.listWorkItems({ connectionId: "connection-1" }),
     (error: unknown) => error instanceof JiraPluginError && error.code === JIRA_ERROR_CODES.permissionDenied,
   );
   assert.deepEqual(await client.connectionStatus("connection-1"), {
@@ -224,7 +218,7 @@ test("maps missing and malformed JSON credentials to safe needs-auth states", as
     fetch: async () => jsonResponse({ issues: [], isLast: true }),
   });
   await assert.rejects(
-    missing.listWorkItems({ connectionId: "connection-1", projectKey: "OPS" }),
+    missing.listWorkItems({ connectionId: "connection-1" }),
     (error: unknown) => error instanceof JiraPluginError && error.code === JIRA_ERROR_CODES.credentialNotFound,
   );
   assert.deepEqual(await missing.connectionStatus("connection-1"), {
@@ -245,7 +239,7 @@ test("maps missing and malformed JSON credentials to safe needs-auth states", as
     fetch: async () => jsonResponse({ issues: [], isLast: true }),
   });
   await assert.rejects(
-    malformed.listWorkItems({ connectionId: "connection-1", projectKey: "OPS" }),
+    malformed.listWorkItems({ connectionId: "connection-1" }),
     (error: unknown) => error instanceof JiraPluginError && error.code === JIRA_ERROR_CODES.malformedCredential,
   );
   assert.deepEqual(await malformed.connectionStatus("connection-1"), {
@@ -266,7 +260,7 @@ test("redacts credential and fetch failures without retaining secret causes", as
     fetch: async () => jsonResponse({ issues: [], isLast: true }),
   });
   await assert.rejects(
-    credentialFailure.listWorkItems({ connectionId: "connection-1", projectKey: "OPS" }),
+    credentialFailure.listWorkItems({ connectionId: "connection-1" }),
     (error: unknown) => {
       return error instanceof JiraPluginError &&
         error.code === JIRA_ERROR_CODES.credentialError &&
@@ -284,7 +278,7 @@ test("redacts credential and fetch failures without retaining secret causes", as
     },
   });
   await assert.rejects(
-    networkFailure.listWorkItems({ connectionId: "connection-1", projectKey: "OPS" }),
+    networkFailure.listWorkItems({ connectionId: "connection-1" }),
     (error: unknown) => {
       return error instanceof JiraPluginError &&
         error.code === JIRA_ERROR_CODES.network &&
@@ -309,7 +303,7 @@ test("maps auth, not-found, rate-limit, HTTP, and malformed API responses safely
         fetch: async () => jsonResponse({ message: "provider detail" }, expected.status),
       });
       await assert.rejects(
-        client.listWorkItems({ connectionId: "connection-1", projectKey: "OPS" }),
+        client.listWorkItems({ connectionId: "connection-1" }),
         (error: unknown) => error instanceof JiraPluginError && error.code === expected.code,
       );
       const status = await client.connectionStatus("connection-1");
@@ -323,7 +317,7 @@ test("maps auth, not-found, rate-limit, HTTP, and malformed API responses safely
     fetch: async () => jsonResponse({ issues: [] }),
   });
   await assert.rejects(
-    malformedClient.listWorkItems({ connectionId: "connection-1", projectKey: "OPS" }),
+    malformedClient.listWorkItems({ connectionId: "connection-1" }),
     (error: unknown) => error instanceof JiraPluginError && error.code === JIRA_ERROR_CODES.malformedResponse,
   );
 });
@@ -409,7 +403,7 @@ test("does not expose API tokens in malformed response errors", async () => {
     }),
   });
   await assert.rejects(
-    client.listWorkItems({ connectionId: "connection-1", projectKey: "OPS" }),
+    client.listWorkItems({ connectionId: "connection-1" }),
     (error: unknown) => error instanceof JiraPluginError &&
       error.code === JIRA_ERROR_CODES.malformedResponse &&
       !error.message.includes(token),

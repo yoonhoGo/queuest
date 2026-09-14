@@ -7,7 +7,6 @@ use std::{process::Command, time::Duration};
 #[serde(rename_all = "camelCase")]
 pub struct JiraQuery {
     connection_id: String,
-    project_key: String,
     site_url: String,
     email: String,
     board_id: Option<u64>,
@@ -36,6 +35,9 @@ pub struct JiraIssue {
     external_ref: String,
     url: String,
     backlog: bool,
+    issue_type: String,
+    is_epic: bool,
+    parent_key: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -43,6 +45,102 @@ pub struct JiraIssue {
 pub struct JiraPage {
     items: Vec<JiraIssue>,
     next_cursor: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GithubConnectionIssue {
+    number: u64,
+    title: String,
+    body: Option<String>,
+    state: String,
+    url: String,
+}
+
+#[tauri::command]
+pub async fn github_connection_issue_list(
+    connection_id: String,
+    repository: String,
+) -> Result<Vec<GithubConnectionIssue>, String> {
+    super::keychain_identifiers("com.queuest.github", &connection_id)?;
+    let valid_repository = repository.len() <= 200
+        && repository.split('/').count() == 2
+        && repository.split('/').all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        });
+    if !valid_repository {
+        return Err("GitHub 저장소는 owner/repository 형식이어야 합니다.".into());
+    }
+    #[cfg(target_os = "macos")]
+    let token = {
+        let (service, account) = super::keychain_identifiers("com.queuest.github", &connection_id)?;
+        let output = Command::new("/usr/bin/security")
+            .args([
+                "find-generic-password",
+                "-s",
+                &service,
+                "-a",
+                &account,
+                "-w",
+            ])
+            .output()
+            .map_err(|_| "GitHub 인증 정보를 읽지 못했습니다.")?;
+        if !output.status.success() {
+            return Err("연동 설정에서 GitHub token을 저장하세요.".into());
+        }
+        String::from_utf8(output.stdout).map_err(|_| "GitHub 인증 정보를 다시 저장하세요.")?
+    };
+    #[cfg(not(target_os = "macos"))]
+    return Err("GitHub 인증은 macOS Keychain에서만 지원합니다.".into());
+    #[cfg(target_os = "macos")]
+    {
+        let url =
+            format!("https://api.github.com/repos/{repository}/issues?state=all&per_page=100");
+        let response = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|_| "GitHub 연결을 준비하지 못했습니다.")?
+            .get(url)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "Queuest/0.1")
+            .bearer_auth(token.trim())
+            .send()
+            .await
+            .map_err(|_| "GitHub 연결에 실패했습니다.")?;
+        if !response.status().is_success() {
+            return Err("GitHub 인증 또는 저장소 권한을 확인하세요.".into());
+        }
+        let body: Value = response
+            .json()
+            .await
+            .map_err(|_| "GitHub 응답을 해석하지 못했습니다.")?;
+        let rows = body
+            .as_array()
+            .ok_or("GitHub 응답을 해석하지 못했습니다.")?;
+        rows.iter()
+            .filter(|row| row.get("pull_request").is_none())
+            .map(|row| {
+                Ok(GithubConnectionIssue {
+                    number: row["number"]
+                        .as_u64()
+                        .ok_or("GitHub 응답을 해석하지 못했습니다.")?,
+                    title: row["title"]
+                        .as_str()
+                        .ok_or("GitHub 응답을 해석하지 못했습니다.")?
+                        .into(),
+                    body: row["body"].as_str().map(String::from),
+                    state: row["state"].as_str().unwrap_or("open").to_ascii_uppercase(),
+                    url: row["html_url"]
+                        .as_str()
+                        .ok_or("GitHub 응답을 해석하지 못했습니다.")?
+                        .into(),
+                })
+            })
+            .collect()
+    }
 }
 
 fn jira_origin(value: &str) -> Result<reqwest::Url, String> {
@@ -78,18 +176,14 @@ fn validate_query(query: &JiraQuery) -> Result<(), String> {
     }
     super::keychain_identifiers("com.queuest.jira", &query.connection_id)?;
     jira_origin(&query.site_url)?;
-    let key = &query.project_key;
-    if key.is_empty()
-        || key.len() > 128
-        || !key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
-        || query.board_id == Some(0)
+    if query.board_id == Some(0)
         || (query.backlog_only && query.board_id.is_none())
         || query
             .cursor
             .as_ref()
             .is_some_and(|c| c.is_empty() || c.len() > 8192 || c.chars().any(char::is_control))
     {
-        return Err("Jira 프로젝트 키, 보드 ID 또는 페이지 정보가 올바르지 않습니다.".into());
+        return Err("Jira 보드 ID 또는 페이지 정보가 올바르지 않습니다.".into());
     }
     Ok(())
 }
@@ -186,6 +280,15 @@ fn map_page(body: Value, origin: &reqwest::Url, backlog: bool) -> Result<JiraPag
                 .map_err(|_| invalid())?
                 .into(),
             backlog,
+            issue_type: fields["issuetype"]["name"]
+                .as_str()
+                .unwrap_or("Task")
+                .into(),
+            is_epic: fields["issuetype"]["hierarchyLevel"].as_i64() == Some(1)
+                || fields["issuetype"]["name"]
+                    .as_str()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("epic")),
+            parent_key: fields["parent"]["key"].as_str().map(String::from),
         });
     }
     let next_cursor = match body.get("nextPageToken") {
@@ -222,24 +325,23 @@ pub async fn jira_issue_list(query: JiraQuery) -> Result<JiraPage, String> {
         return Err("Jira 인증 정보를 다시 저장하세요.".into());
     }
     let client = jira_client()?;
-    let jql = format!("project = \"{}\" ORDER BY updated DESC", query.project_key);
+    let jql = "assignee = currentUser() ORDER BY updated DESC";
     let request = if query.backlog_only {
         let board_id = query.board_id.ok_or("백로그 보드 ID가 필요합니다.")?;
         let url = origin
             .join(&format!("rest/software/1.0/board/{board_id}/backlog"))
             .map_err(|_| "Jira 보드 주소가 올바르지 않습니다.")?;
         let mut request = client.get(url).query(&[
-            ("jql", jql.as_str()),
+            ("jql", jql),
             ("maxResults", "100"),
-            ("fields", "summary,description,status"),
+            ("fields", "summary,description,status,issuetype,parent"),
         ]);
         if let Some(cursor) = &query.cursor {
             request = request.query(&[("nextPageToken", cursor)]);
         }
         request
     } else {
-        let mut payload =
-            json!({"jql": jql, "maxResults": 100, "fields": ["summary", "description", "status"]});
+        let mut payload = json!({"jql": jql, "maxResults": 100, "fields": ["summary", "description", "status", "issuetype", "parent"]});
         if let Some(cursor) = &query.cursor {
             payload["nextPageToken"] = json!(cursor);
         }
@@ -262,7 +364,7 @@ pub async fn jira_issue_list(query: JiraQuery) -> Result<JiraPage, String> {
                 .map(|item| format!("\"{}\"", item.key))
                 .collect::<Vec<_>>()
                 .join(",");
-            let backlog_jql = format!("project = \"{}\" AND key IN ({keys})", query.project_key);
+            let backlog_jql = format!("assignee = currentUser() AND key IN ({keys})");
             let url = origin
                 .join(&format!("rest/software/1.0/board/{board_id}/backlog"))
                 .map_err(|_| "Jira 보드 주소가 올바르지 않습니다.")?;
@@ -321,8 +423,8 @@ async fn request_json(
         .map_err(|_| "Jira 연결에 실패했습니다. 네트워크를 확인하세요.")?;
     if !response.status().is_success() {
         return Err(match response.status().as_u16() {
-            401 | 403 => "Jira 인증 또는 프로젝트·보드 조회 권한을 확인하세요.",
-            404 => "Jira 프로젝트 또는 보드를 찾지 못했습니다.",
+            401 | 403 => "Jira 인증 또는 티켓·보드 조회 권한을 확인하세요.",
+            404 => "Jira 티켓 또는 보드를 찾지 못했습니다.",
             429 => "Jira 요청 한도를 초과했습니다. 잠시 후 다시 시도하세요.",
             _ => "Jira 조회에 실패했습니다. 연결 설정을 확인하세요.",
         }
@@ -394,7 +496,6 @@ mod tests {
     fn approval_and_query_validation_precede_access() {
         let mut query = JiraQuery {
             connection_id: "work".into(),
-            project_key: "Q".into(),
             site_url: "https://team.atlassian.net".into(),
             email: "me@example.com".into(),
             board_id: None,
@@ -405,13 +506,13 @@ mod tests {
         assert!(validate_query(&query).unwrap_err().contains("허용"));
         query.approved = true;
         assert!(validate_query(&query).is_ok());
-        query.project_key = "Q OR project = OTHER".into();
+        query.board_id = Some(0);
         assert!(validate_query(&query).is_err());
     }
 
     #[test]
     fn preserves_backlog_identity_description_and_pagination() {
-        let body = json!({"issues": [{"key": "Q-1", "fields": {"summary": "Test", "description": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Do it"}]}]}, "status": {"name": "Backlog", "statusCategory": {"key": "new"}}}}], "nextPageToken": "next", "isLast": false});
+        let body = json!({"issues": [{"key": "Q-1", "fields": {"summary": "Test", "description": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Do it"}]}]}, "status": {"name": "Backlog", "statusCategory": {"key": "new"}}, "issuetype": {"name": "Story", "hierarchyLevel": 0}, "parent": {"key": "Q-EPIC"}}}], "nextPageToken": "next", "isLast": false});
         let page = map_page(
             body,
             &jira_origin("https://team.atlassian.net").unwrap(),
@@ -421,6 +522,9 @@ mod tests {
         assert_eq!(page.items[0].external_ref, "jira:team.atlassian.net/Q-1");
         assert_eq!(page.items[0].body, "Do it");
         assert!(page.items[0].backlog);
+        assert_eq!(page.items[0].issue_type, "Story");
+        assert!(!page.items[0].is_epic);
+        assert_eq!(page.items[0].parent_key.as_deref(), Some("Q-EPIC"));
         assert_eq!(page.next_cursor.as_deref(), Some("next"));
         assert!(map_page(
             json!({"issues": [], "isLast": false}),
