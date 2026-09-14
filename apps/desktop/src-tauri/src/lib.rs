@@ -7,7 +7,10 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     thread,
     time::Duration,
 };
@@ -221,8 +224,14 @@ fn toggle_main_window(app: &tauri::AppHandle, anchor: Option<tauri::Rect>) {
     }
 }
 
-fn should_hide_on_focus_loss(pinned: bool, directory_dialog_open: bool, debug_build: bool) -> bool {
-    !debug_build && !pinned && !directory_dialog_open
+fn should_hide_on_focus_loss(
+    pinned: bool,
+    directory_dialog_open: bool,
+    debug_build: bool,
+    focused: bool,
+    visible: bool,
+) -> bool {
+    !debug_build && !pinned && !directory_dialog_open && !focused && visible
 }
 
 #[cfg(test)]
@@ -231,14 +240,22 @@ mod window_visibility_tests {
 
     #[test]
     fn development_windows_stay_open_when_focus_moves() {
-        assert!(!should_hide_on_focus_loss(false, false, true));
+        assert!(!should_hide_on_focus_loss(false, false, true, false, true));
     }
 
     #[test]
     fn release_popovers_only_hide_when_unpinned_and_idle() {
-        assert!(should_hide_on_focus_loss(false, false, false));
-        assert!(!should_hide_on_focus_loss(true, false, false));
-        assert!(!should_hide_on_focus_loss(false, true, false));
+        assert!(should_hide_on_focus_loss(false, false, false, false, true));
+        assert!(!should_hide_on_focus_loss(true, false, false, false, true));
+        assert!(!should_hide_on_focus_loss(false, true, false, false, true));
+    }
+
+    #[test]
+    fn transient_focus_loss_does_not_hide_a_refocused_or_hidden_window() {
+        assert!(!should_hide_on_focus_loss(false, false, false, true, true));
+        assert!(!should_hide_on_focus_loss(
+            false, false, false, false, false
+        ));
     }
 }
 
@@ -773,18 +790,37 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let app_handle = app.handle().clone();
                 let focus_window = window.clone();
+                let focus_generation = Arc::new(AtomicU64::new(0));
                 window.on_window_event(move |event| {
-                    if let WindowEvent::Focused(false) = event {
-                        let pinned = app_handle
-                            .state::<WindowState>()
-                            .is_pinned()
-                            .unwrap_or(false);
-                        if should_hide_on_focus_loss(
-                            pinned,
-                            app_handle.state::<DirectoryDialogState>().is_open(),
-                            cfg!(debug_assertions),
-                        ) {
-                            let _ = focus_window.hide();
+                    if let WindowEvent::Focused(focused) = event {
+                        let generation = focus_generation.fetch_add(1, Ordering::SeqCst) + 1;
+                        if !focused && !cfg!(debug_assertions) {
+                            let app_handle = app_handle.clone();
+                            let check_window = focus_window.clone();
+                            let focus_generation = focus_generation.clone();
+                            thread::spawn(move || {
+                                // Wait for transient focus changes to settle before dismissing.
+                                thread::sleep(Duration::from_millis(150));
+                                let window_for_check = check_window.clone();
+                                let _ = check_window.run_on_main_thread(move || {
+                                    if focus_generation.load(Ordering::SeqCst) != generation {
+                                        return;
+                                    }
+                                    let pinned = app_handle
+                                        .state::<WindowState>()
+                                        .is_pinned()
+                                        .unwrap_or(false);
+                                    if should_hide_on_focus_loss(
+                                        pinned,
+                                        app_handle.state::<DirectoryDialogState>().is_open(),
+                                        cfg!(debug_assertions),
+                                        window_for_check.is_focused().unwrap_or(true),
+                                        window_for_check.is_visible().unwrap_or(false),
+                                    ) {
+                                        let _ = window_for_check.hide();
+                                    }
+                                });
+                            });
                         }
                     }
                 });
@@ -797,10 +833,15 @@ pub fn run() {
             let quit = MenuItemBuilder::with_id("quit", "종료").build(app)?;
             let menu = MenuBuilder::new(app).items(&[&toggle, &quit]).build()?;
 
+            let tray_icon = if cfg!(target_os = "macos") {
+                tauri::include_image!("./icons/trayTemplate@2x.png")
+            } else {
+                app.default_window_icon().unwrap().clone()
+            };
+
             TrayIconBuilder::with_id("queuest")
-                .icon(app.default_window_icon().unwrap().clone())
-                .icon_as_template(true)
-                .title("Q")
+                .icon(tray_icon)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("Queuest")
                 .menu(&menu)
                 .show_menu_on_left_click(false)

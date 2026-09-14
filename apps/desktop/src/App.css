@@ -23,7 +23,11 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
-.main-content h2:focus {
+.main-content h2[tabindex="-1"] {
+  pointer-events: none;
+}
+
+.main-content h2:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: 4px;
 }

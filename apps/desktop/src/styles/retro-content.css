@@ -156,13 +156,15 @@
 .todo-more summary {
   display: grid;
   place-items: center;
-  width: 30px;
-  min-height: 30px;
+  width: 34px;
+  min-height: 34px;
   color: var(--muted);
   cursor: pointer;
   list-style: none;
 }
+.todo-more summary::marker { content: ""; }
 .todo-more summary::-webkit-details-marker { display: none; }
+.todo-more summary .pixel-icon { width: 20px; height: 20px; pointer-events: none; }
 .todo-more summary:focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
 .todo-action-menu {
   position: absolute;
@@ -370,7 +372,7 @@
 }
 :root[data-theme="fantasy"] .completed .todo-meta { color: var(--fantasy-aqua); }
 :root[data-theme="fantasy"] .todo-more { flex: 0 0 auto; }
-:root[data-theme="fantasy"] .todo-more summary { width: 22px; min-height: 28px; color: var(--fantasy-muted); font-size: 16px; }
+:root[data-theme="fantasy"] .todo-more summary { color: var(--fantasy-muted); }
 :root[data-theme="fantasy"] .todo-action-menu {
   z-index: 100;
   border-color: var(--fantasy-edge-bright);

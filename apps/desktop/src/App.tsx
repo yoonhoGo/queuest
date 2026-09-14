@@ -1897,7 +1897,7 @@ function TodoRow({
       )}
       {!editing && (
         <details className="todo-actions todo-more">
-          <summary aria-label={`${todo.title} 작업 메뉴`}><span aria-hidden="true">•••</span></summary>
+          <summary aria-label={`${todo.title} 작업 메뉴`}><PixelIcon name="more" /></summary>
           <div className="todo-action-menu">
             <button className="row-action" ref={editButtonRef} type="button" onClick={onEdit}>편집</button>
             <button className="row-action danger" type="button" onClick={() => void onDelete()}>삭제</button>
