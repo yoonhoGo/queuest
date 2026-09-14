@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 40">
+  <title>Queuest — sword beneath three queued quests</title>
+  <defs>
+    <mask id="queue-dots" maskUnits="userSpaceOnUse">
+      <rect width="110" height="40" fill="#fff" />
+      <g fill="#000">
+        <circle cx="28.5" cy="20" r="2.2" />
+        <circle cx="45.5" cy="20" r="2.2" />
+        <circle cx="62.5" cy="20" r="2.2" />
+      </g>
+    </mask>
+    <mask id="blade-facet" maskUnits="userSpaceOnUse">
+      <rect width="110" height="40" fill="#fff" />
+      <path d="M7 20h79" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" />
+    </mask>
+    <mask id="hilt-details" maskUnits="userSpaceOnUse">
+      <rect width="110" height="40" fill="#fff" />
+      <path d="m89 16 3 4-3 4-3-4Z" fill="#000" />
+      <circle cx="102" cy="20" r="1" fill="#000" />
+      <path d="m96 18-1 4m4-4-1 4" fill="none" stroke="#000" stroke-width="0.9" />
+    </mask>
+  </defs>
+  <!-- One broad blade runs continuously beneath the filled, separated tiles. -->
+  <g mask="url(#queue-dots)">
+    <path d="M1 20 13 14h69l4 6-4 6H13Z" fill="#000" mask="url(#blade-facet)" />
+    <g fill="#000">
+      <rect x="21" y="9" width="15" height="22" rx="2.5" />
+      <rect x="38" y="9" width="15" height="22" rx="2.5" />
+      <rect x="55" y="9" width="15" height="22" rx="2.5" />
+    </g>
+  </g>
+  <!-- Ornate guard, wrapped grip, and ringed pommel sit over the blade's tang. -->
+  <g fill="#000" mask="url(#hilt-details)">
+    <path d="M84 17 86 7q3-3 6 0l2 10 2 1v4l-2 1-2 10q-3 3-6 0l-2-10-2-1v-4Z" />
+    <rect x="94" y="18" width="7" height="4" rx="1" />
+    <circle cx="102" cy="20" r="3" />
+  </g>
+</svg>

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-type PixelIconName = "star" | "clipboard" | "flag" | "person" | "puzzle" | "bell" | "pin" | "settings" | "palette" | "book" | "sprout";
+type PixelIconName = "star" | "clipboard" | "flag" | "person" | "puzzle" | "bell" | "pin" | "settings" | "palette" | "book" | "sprout" | "more";
 
 const artwork: Record<PixelIconName, ReactNode> = {
   star: <path d="M10 1h4v6h3v3h6v4h-6v3h-3v6h-4v-6H7v-3H1v-4h6V7h3Z" fill="var(--gold)" />,
@@ -14,6 +14,7 @@ const artwork: Record<PixelIconName, ReactNode> = {
   palette: <><path d="M9 2h7v3h4v4h2v7h-5v5H9v-3H5v-3H2V9h3V5h4Z" fill="var(--paper-bright)" /><path d="M9 7h3v3H9ZM14 5h3v3h-3ZM15 12h3v3h-3ZM9 15h3v3H9Z" fill="currentColor" stroke="none" /></>,
   book: <><path d="m12 5-4-3H1v17h7l4 3 4-3h7V2h-7Z" fill="var(--paper-bright)" /><path d="M12 5v17M4 7h4M4 11h4M16 7h4M16 11h4" /></>,
   sprout: <path d="M11 23V12H5V9H2V3h7v3h3v5h3V6h7v7h-3v3h-6v7Z" fill="var(--mint)" />,
+  more: <path d="M10 2h4v4h-4zM10 10h4v4h-4zM10 18h4v4h-4z" fill="currentColor" stroke="none" />,
 };
 
 export function PixelIcon({ name }: { readonly name: PixelIconName }) {
