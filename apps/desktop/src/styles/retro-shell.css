@@ -322,20 +322,20 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 :root[data-theme="fantasy"] .app-navigation .pixel-icon { display: block; width: 18px; height: 18px; }
 :root[data-theme="fantasy"] .app-navigation button + button { border-left: 1px solid var(--border-soft); }
 :root[data-theme="fantasy"] .app-navigation button:hover { border-color: var(--fantasy-edge-bright); background: var(--fantasy-panel-raised); }
-:root[data-theme="fantasy"] .app-navigation button[aria-current="page"], :root[data-theme="fantasy"] .app-navigation button[aria-current="page"]:hover { border-color: var(--gold); background: var(--fantasy-active-tab); color: var(--fantasy-gold-soft); box-shadow: none; }
+:root[data-theme="fantasy"] .app-navigation button[aria-current="page"], :root[data-theme="fantasy"] .app-navigation button[aria-current="page"]:hover { border-color: transparent; background: transparent; color: var(--fantasy-gold-soft); box-shadow: none; }
+:root[data-theme="fantasy"] .app-navigation button[aria-current="page"] > :not(.nav-tip) { position: relative; z-index: 1; }
 :root[data-theme="fantasy"] .app-navigation button[aria-current="page"] .nav-tip {
   position: absolute;
-  z-index: 1;
-  bottom: -9px;
-  left: calc(50% - 14px);
+  z-index: 0;
+  top: 0;
+  left: 0;
   display: block;
-  width: 28px;
-  height: 11px;
+  width: 100%;
+  height: calc(100% + 9px);
   overflow: visible;
   pointer-events: none;
 }
-:root[data-theme="fantasy"] .nav-tip-fill { fill: var(--fantasy-active-tab); stroke: none; }
-:root[data-theme="fantasy"] .nav-tip-line { fill: none; stroke: var(--gold); stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+:root[data-theme="fantasy"] .nav-tip path { fill: var(--fantasy-active-tab); stroke: var(--gold); stroke-width: 1; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 
 :root[data-theme="fantasy"] .main-content {
   z-index: 1;

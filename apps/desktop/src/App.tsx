@@ -586,9 +586,8 @@ function AppNavigation({ active, onNavigate }: {
           aria-current={active === id || (id === "project" && active === "project-picker") ? "page" : undefined}
           onClick={() => onNavigate(id)}>
           <PixelIcon name={icon} /><span>{label}</span>
-          <svg className="nav-tip" viewBox="0 0 28 11" aria-hidden="true" preserveAspectRatio="none">
-            <path className="nav-tip-fill" d="M8 0H20V2C18 2 17 3 16 5L15 7C14.6 8 14.3 8.5 14 8.5C13.7 8.5 13.4 8 13 7L12 5C11 3 10 2 8 2Z" />
-            <path className="nav-tip-line" d="M8 2C10 2 11 3 12 5L13 7C13.4 8 13.7 8.5 14 8.5C14.3 8.5 14.6 8 15 7L16 5C17 3 18 2 20 2" />
+          <svg className="nav-tip" viewBox="0 0 100 45" aria-hidden="true" preserveAspectRatio="none">
+            <path d="M11 .5H89C94.8 .5 99.5 5.2 99.5 11V25C99.5 30.8 94.8 35.5 89 35.5H57C55 35.5 54.5 36.4 53.5 38L51 42C50.6 43 50.3 43.5 50 43.5C49.7 43.5 49.4 43 49 42L46.5 38C45.5 36.4 45 35.5 43 35.5H11C5.2 35.5 .5 30.8 .5 25V11C.5 5.2 5.2 .5 11 .5Z" />
           </svg>
         </button>
       ))}
