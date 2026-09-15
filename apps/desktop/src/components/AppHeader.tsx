@@ -14,7 +14,7 @@ interface AppHeaderProps {
 
 export function AppHeader({
   todoCount, pinned, pinPending, onTogglePinned, onOpenProject,
-  projectLabel = "프로젝트", countLabel = "완료하지 않은 인박스 할 일 수", onOpenSettings, onOpenAppSettings,
+  projectLabel = "원정", countLabel = "완료하지 않은 인박스 할 일 수", onOpenSettings, onOpenAppSettings,
 }: AppHeaderProps) {
   const draggable = !pinned && !pinPending;
   return (
@@ -41,7 +41,7 @@ export function AppHeader({
           onClick={onTogglePinned}><PixelIcon name="pin" /></button>
         {onOpenAppSettings && <button className="icon-button theme-button" type="button" aria-label="앱 설정" title="앱 설정" onClick={onOpenAppSettings}><PixelIcon name="settings" /></button>}
         <button className="topbar-project-button" type="button" onClick={onOpenProject}>{projectLabel}</button>
-        {onOpenSettings && <button className="icon-button" type="button" aria-label="프로젝트 설정" onClick={onOpenSettings}><PixelIcon name="settings" /></button>}
+        {onOpenSettings && <button className="icon-button" type="button" aria-label="원정 설정" onClick={onOpenSettings}><PixelIcon name="settings" /></button>}
       </div>
     </header>
   );

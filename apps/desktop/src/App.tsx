@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, FormEvent, RefObject } from "react";
+import type { FormEvent, RefObject } from "react";
 import { useWindowPin } from "./useWindowPin";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { disable as disableAutostart, enable as enableAutostart } from "@tauri-apps/plugin-autostart";
@@ -8,7 +8,6 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import {
   activeTaskCount,
   createQuestContext,
-  getTrackedQuests,
   advanceTaskStatus,
   canTransitionTaskStatus,
   calculateExperience,
@@ -27,6 +26,7 @@ import {
 import { PendingQuestPanel } from "./components/ExternalWork";
 import { CharacterSprite } from "./components/CharacterSprite.tsx";
 import { QuestContextEditor, QuestContextSummary } from "./components/QuestContext.tsx";
+import { QuestHome, QuestDetail, QuestDialog } from "./components/QuestFlow";
 import { APPEARANCE_COLORS, SPRITE_JOBS, encodeSpriteAppearance, resolveSpriteAppearance, deriveSpriteState } from "./components/sprite.ts";
 import type {
   Assignee,
@@ -100,6 +100,7 @@ import "./App.css";
 import "./styles/retro-shell.css";
 import "./styles/retro-content.css";
 import "./styles/default-theme.css";
+import "./styles/quest-flow.css";
 
 const STATUS_COLUMNS: Array<{ status: TaskStatus; label: string; hint: string }> = [
   { status: "todo", label: "대기", hint: "아직 시작하지 않은 퀘스트" },
@@ -286,8 +287,6 @@ function App() {
   useEffect(() => {
     let mounted = true;
 
-    setTodos(null);
-    setProjectTodos(null);
     setLoadError(null);
     setProjectTodoLoadError(null);
     setActionError(null);
@@ -329,6 +328,18 @@ function App() {
     window.addEventListener(SYNC_UPDATED, refresh);
     return () => window.removeEventListener(SYNC_UPDATED, refresh);
   }, []);
+
+  useEffect(() => { void loadExistingProjects(); }, []);
+
+  async function saveHomeTask(task: Task): Promise<boolean> {
+    setActionError(null);
+    try {
+      await saveTask(task);
+      setProjectTodos(current => current?.map(item => item.task.id === task.id ? { ...item, task } : item) ?? null);
+      setProjectGraphs(current => current?.map(graph => ({ ...graph, tasks: graph.tasks.map(item => item.id === task.id ? task : item) })) ?? null);
+      return true;
+    } catch (error: unknown) { setActionError(readableError(error)); return false; }
+  }
 
   async function createTodo(title: string): Promise<boolean> {
     const todo: InboxTodo = {
@@ -389,7 +400,7 @@ function App() {
     try {
       await saveInboxTodo(deletedTodo);
       setTodos((current) =>
-        [...(current ?? []), deletedTodo].sort(compareTodos),
+        [...(current ?? []), deletedTodo].sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
       );
       setDeletedTodo(null);
       return true;
@@ -433,9 +444,7 @@ function App() {
 
   function backToInbox() {
     setSelectedProjectGraph(null);
-    setProjectGraphs(null);
-    setWorkspaces(null);
-    setProjectLoadState("idle");
+    void refreshProjectPickerData().catch(error => setProjectLoadError(readableError(error)));
     setProjectLoadError(null);
     setReloadToken((current) => current + 1);
     setView("inbox");
@@ -443,9 +452,7 @@ function App() {
 
   function backToProjectPicker() {
     setSelectedProjectGraph(null);
-    setProjectGraphs(null);
-    setWorkspaces(null);
-    setProjectLoadState("idle");
+    void loadExistingProjects();
     setProjectLoadError(null);
     setView("project-picker");
   }
@@ -461,7 +468,7 @@ function App() {
           const { graphs } = await refreshProjectPickerData();
           const graph = graphForProject(graphs, projectId);
           if (!graph) {
-            throw new Error("프로젝트를 다시 불러오지 못했습니다.");
+            throw new Error("원정을 다시 불러오지 못했습니다.");
           }
           selectProject(graph);
         } catch (error: unknown) {
@@ -480,6 +487,7 @@ function App() {
       await openUrl(url);
     } catch (error: unknown) {
       setActionError(`원본 링크를 열지 못했습니다: ${readableError(error)}`);
+      throw error;
     }
   }
 
@@ -562,7 +570,7 @@ function App() {
       const { graphs } = await refreshProjectPickerData();
       const graph = graphForProject(graphs, created.project.id);
       if (!graph) {
-        throw new Error("새 프로젝트를 다시 불러오지 못했습니다.");
+        throw new Error("새 원정을 다시 불러오지 못했습니다.");
       }
 
       selectProject(graph);
@@ -589,9 +597,16 @@ function App() {
           onProjectDeleted={backToProjectPicker}
           onOpenCharacter={() => {
             setSelectedProjectGraph(null);
+            setReloadToken(value => value + 1);
+            void refreshProjectPickerData().catch(error => setProjectLoadError(readableError(error)));
             setView("character");
           }}
-          onOpenAppSettings={() => setShowAppSettings(true)}
+          onOpenAppSettings={() => {
+            setSelectedProjectGraph(null);
+            setReloadToken(value => value + 1);
+            void refreshProjectPickerData().catch(error => setProjectLoadError(readableError(error)));
+            setView("plugins");
+          }}
           windowError={actionError}
         />
         {showAppSettings && (
@@ -615,16 +630,20 @@ function App() {
     <div className="app-shell" data-theme={theme}>
       <PopoverTip />
       <AppHeader
-        todoCount={todos?.filter((todo) => !todo.completed).length ?? 0}
+        todoCount={projectTodos?.filter(({ task }) => task.status === "review" && task.quest?.acceptance !== "pending").length ?? 0}
+        countLabel="검토 대기 퀘스트 수"
         pinned={pinned}
         pinPending={pinPending}
         onTogglePinned={() => void togglePinned()}
         onOpenProject={() => openProjectPicker()}
-        onOpenAppSettings={() => setShowAppSettings(true)}
+        onOpenAppSettings={() => setView("plugins")}
       />
       <AppNavigation active={view} onNavigate={(next) => next === "project" ? openProjectPicker() : setView(next)} />
       <main className="main-content" ref={contentRef}>
-        {view === "character" ? <CharacterHome /> : view === "plugins" ? <PluginsPanel /> : view === "project-picker" ? (
+        {view === "character" ? <CharacterHome /> : view === "plugins" ? <>
+          <section className="settings-overview"><h2>설정</h2><p>화면 테마, 앱 시작 동작과 외부 연결을 관리합니다.</p><button type="button" className="secondary-button" onClick={() => setShowAppSettings(true)}>테마와 앱 동작</button></section>
+          <PluginsPanel />
+        </> : view === "project-picker" ? (
           <ProjectPicker
             headingRef={viewHeadingRef}
             onBack={() => setView("inbox")}
@@ -654,7 +673,7 @@ function App() {
         ) : todos === null ? (
           <LoadingState />
         ) : (
-          <TodoInbox
+          <QuestHome
             headingRef={viewHeadingRef}
             todos={todos}
             actionError={actionError}
@@ -667,7 +686,9 @@ function App() {
             onOpenProject={openProjectPicker}
             onOpenSource={openSourceUrl}
             projectTodos={projectTodos}
+            projectGraphs={projectGraphs}
             projectTodoLoadError={projectTodoLoadError}
+            onSaveTask={saveHomeTask}
           />
         )}
       </main>
@@ -712,7 +733,7 @@ function AppNavigation({ active, onNavigate }: {
 }) {
   return (
     <nav className="app-navigation" aria-label="주요 화면">
-      {([['inbox', '할 일', 'clipboard'], ['project', '프로젝트', 'flag'], ['character', '캐릭터', 'person'], ['plugins', '설정', 'settings']] as const).map(([id, label, icon]) => (
+      {([['inbox', '퀘스트', 'clipboard'], ['project', '원정', 'flag'], ['character', '캐릭터', 'person'], ['plugins', '설정', 'settings']] as const).map(([id, label, icon]) => (
         <button type="button" key={id}
           aria-current={active === id || (id === "project" && active === "project-picker") ? "page" : undefined}
           onClick={() => onNavigate(id)}>
@@ -759,8 +780,8 @@ function AppSettingsDialog({
   }
 
   return (
-    <div className="dialog-backdrop">
-      <section className="confirm-dialog app-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="app-settings-title">
+    <QuestDialog title="앱 설정" busy={saving} onClose={onClose}>
+      <section className="app-settings-dialog">
         <p className="eyebrow">APP SETTINGS</p>
         <h2 id="app-settings-title">설정</h2>
         <p className="theme-picker-description">화면 테마와 Queuest의 시작 동작을 관리합니다.</p>
@@ -770,7 +791,7 @@ function AppSettingsDialog({
             <p className="eyebrow">APPEARANCE</p>
             <h3 id="appearance-settings-title">테마</h3>
           </div>
-          <p className="theme-picker-description">화면 분위기를 바꿔도 퀘스트와 프로젝트 데이터는 그대로 유지됩니다.</p>
+          <p className="theme-picker-description">화면 분위기를 바꿔도 퀘스트와 원정 데이터는 그대로 유지됩니다.</p>
           <div className="theme-options" role="group" aria-label="앱 테마">
             <button className={`theme-choice default ${theme === "default" ? "selected" : ""}`} type="button" aria-pressed={theme === "default"} onClick={() => onThemeChange("default")}>
               <span className="theme-swatch" aria-hidden="true"><i /><i /><i /></span>
@@ -840,7 +861,7 @@ function AppSettingsDialog({
           <button className="secondary-button" type="button" onClick={onClose} disabled={saving}>닫기</button>
         </div>
       </section>
-    </div>
+    </QuestDialog>
   );
 }
 
@@ -890,9 +911,9 @@ function CharacterHome() {
           <p className="eyebrow">GLOBAL CHARACTER</p>
           <h2 id="profile-title" tabIndex={-1}><PixelIcon name="star" />나의 캐릭터</h2>
         </div>
-        <span className="sheet-rule">전체 프로젝트</span>
+        <span className="sheet-rule">전체 원정</span>
       </div>
-      <p className="page-description">모든 프로젝트에서 쌓은 경험으로 함께 성장해요.</p>
+      <p className="page-description">모든 원정에서 쌓은 경험으로 함께 성장해요.</p>
       {error && (
         <div className="action-error" role="alert">
           <span>{error}</span>
@@ -1010,7 +1031,7 @@ function CharacterHome() {
                   </div>
                   <span>{item.progress}%</span>
                 </div>
-              )) : <p className="panel-empty">프로젝트를 열면 원정 기록이 여기에 표시됩니다.</p>}
+              )) : <p className="panel-empty">원정을 열면 원정 기록이 여기에 표시됩니다.</p>}
             </div>
           </section>
         </>
@@ -1706,7 +1727,7 @@ function PluginsPanel() {
     {scanning && <p role="status">설치 및 인증 상태를 확인하는 중…</p>}
     {tools && <div className="plugin-list">{([tools.claude, tools.gh, tools.jj]).map((tool) => <article className="plugin-card" key={tool.id}>
       <div className="section-heading"><h3>{tool.id}</h3><span className={`tool-tag ${tool.installed && tool.authenticated !== false ? "equipped" : "warning"}`}>{toolStatusLabel(tool)}</span></div>
-      <p>{tool.id === "claude" ? "프로젝트의 AI 작업 실행 도구" : tool.id === "gh" ? "GitHub 로컬 CLI" : "로컬 버전 관리 도구"}</p>
+      <p>{tool.id === "claude" ? "원정의 AI 작업 실행 도구" : tool.id === "gh" ? "GitHub 로컬 CLI" : "로컬 버전 관리 도구"}</p>
       {tool.path && <code>{tool.path}</code>}
     </article>)}</div>}
     <h3>서비스 플러그인</h3>
@@ -1762,10 +1783,6 @@ function PluginsPanel() {
   </section>;
 }
 
-function compareTodos(left: InboxTodo, right: InboxTodo): number {
-  return left.createdAt.localeCompare(right.createdAt);
-}
-
 function parseSkillText(value: string): string[] {
   return [...new Set(value.split(",").map((skill) => skill.trim()).filter(Boolean))];
 }
@@ -1804,358 +1821,6 @@ function LoadErrorState({ message, onRetry }: LoadErrorStateProps) {
   );
 }
 
-interface TodoInboxProps {
-  headingRef: RefObject<HTMLHeadingElement | null>;
-  todos: InboxTodo[];
-  actionError: string | null;
-  deletedTodo: InboxTodo | null;
-  onCreate: (title: string) => Promise<boolean>;
-  onUpdate: (todo: InboxTodo) => Promise<boolean>;
-  onDelete: (todo: InboxTodo) => Promise<boolean>;
-  onRecover: () => Promise<boolean>;
-  onClearActionError: () => void;
-  onOpenProject: (projectId?: string) => void;
-  onOpenSource: (url: string) => Promise<void>;
-  projectTodos: ProjectTodo[] | null;
-  projectTodoLoadError: string | null;
-}
-
-function TodoInbox({
-  headingRef,
-  todos,
-  actionError,
-  deletedTodo,
-  onCreate,
-  onUpdate,
-  onDelete,
-  onRecover,
-  onClearActionError,
-  onOpenProject,
-  onOpenSource,
-  projectTodos,
-  projectTodoLoadError,
-}: TodoInboxProps) {
-  const [draftTitle, setDraftTitle] = useState("");
-  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
-  const [editingTitle, setEditingTitle] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const composeInputRef = useRef<HTMLInputElement>(null);
-
-  const completedCount = todos.filter((todo) => todo.completed).length;
-
-  async function handleCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const title = draftTitle.trim();
-
-    if (!title) {
-      setValidationError("할 일 제목을 입력하세요.");
-      return;
-    }
-
-    setValidationError(null);
-    if (await onCreate(title)) {
-      setDraftTitle("");
-    }
-  }
-
-  function beginEdit(todo: InboxTodo) {
-    setValidationError(null);
-    setEditingTodoId(todo.id);
-    setEditingTitle(todo.title);
-  }
-
-  function cancelEdit() {
-    setEditingTodoId(null);
-    setEditingTitle("");
-  }
-
-  async function commitEdit(todo: InboxTodo) {
-    const title = editingTitle.trim();
-    if (!title) {
-      setValidationError("할 일 제목을 입력하세요.");
-      return;
-    }
-
-    setValidationError(null);
-    if (await onUpdate({ ...todo, title })) {
-      cancelEdit();
-    }
-  }
-
-  return (
-    <>
-      <section className="inbox-hero" aria-labelledby="inbox-title">
-        <div className="inbox-intro">
-          <div>
-            <p className="eyebrow">PERSONAL INBOX</p>
-            <h2 id="inbox-title" ref={headingRef} tabIndex={-1}><PixelIcon name="clipboard" />오늘의 퀘스트</h2>
-            <p className="inbox-lede">
-              한 걸음씩, 오늘도 레벨 업!
-            </p>
-          </div>
-          <span className="workspace-chip">로컬 저장소</span>
-        </div>
-        {todos.length > 0 && <div className="inbox-progress">
-          <div className="progress-track" role="progressbar" aria-label="인박스 완료율"
-            aria-valuemin={0} aria-valuemax={todos.length} aria-valuenow={completedCount}
-            style={{ "--segment-count": Math.max(todos.length, 1) } as CSSProperties}>
-            <span style={{ width: `${completedCount / todos.length * 100}%` }} />
-          </div>
-          <span>{completedCount} / {todos.length} 완료</span>
-        </div>}
-      </section>
-      <section className="todo-compose" aria-labelledby="compose-title">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">QUICK CAPTURE</p>
-            <h2 id="compose-title">새 할 일</h2>
-          </div>
-          <span className="section-note">Enter로 저장</span>
-        </div>
-        <form className="todo-form" onSubmit={handleCreate}>
-          <label className="sr-only" htmlFor="new-todo-title">새 할 일 제목</label>
-          <button className="primary-button compose-add" type="submit"><span aria-hidden="true">＋</span><span className="compose-add-label">추가</span></button>
-          <input
-            ref={composeInputRef}
-            id="new-todo-title"
-            type="text"
-            value={draftTitle}
-            placeholder="새 퀘스트 추가"
-            onChange={(event) => {
-              setDraftTitle(event.target.value);
-              if (validationError) {
-                setValidationError(null);
-              }
-            }}
-          />
-          <span className="compose-shortcut" aria-hidden="true">↵</span>
-        </form>
-        {validationError && <p className="validation-note" role="alert">{validationError}</p>}
-      </section>
-
-
-      {getTrackedQuests(projectTodos ?? []).length > 0 && <section className="editor-panel" aria-labelledby="tracked-quests-title">
-        <h2 id="tracked-quests-title">추적 중인 퀘스트</h2>
-        {getTrackedQuests(projectTodos ?? []).map(item => <article key={item.task.id}>
-          <p className="todo-meta">{item.project.name} → {item.milestone.name}</p>
-          <h3>{item.task.title}</h3>
-          <QuestContextSummary task={item.task} />
-          <button type="button" className="row-action" onClick={() => onOpenProject(item.project.id)}>프로젝트 열기</button>
-        </article>)}
-      </section>}
-
-      {actionError && (
-        <div className="action-error" role="alert">
-          <span>{actionError}</span>
-          <button type="button" onClick={onClearActionError}>닫기</button>
-        </div>
-      )}
-
-      {todos.length === 0 ? (
-        <section className="state-panel empty-state" aria-labelledby="empty-title">
-          <span className="state-mark" aria-hidden="true">＋</span>
-          <p className="eyebrow">INBOX CLEAR</p>
-          <h2 id="empty-title">아직 적어둔 할 일이 없습니다</h2>
-          <p>위 입력창에 첫 생각을 적으면 여기에 차곡차곡 쌓입니다.</p>
-        </section>
-      ) : (
-        <section className="todo-list-panel" aria-labelledby="todo-list-title">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">QUEUE</p>
-              <h2 id="todo-list-title">내 인박스</h2>
-            </div>
-            <span className="section-note">{todos.length}개</span>
-          </div>
-          <div className="todo-list">
-            {[...todos].sort(compareTodos).map((todo) => (
-              <TodoRow
-                key={todo.id}
-                todo={todo}
-                editing={editingTodoId === todo.id}
-                editingTitle={editingTitle}
-                onToggle={() => onUpdate({ ...todo, completed: !todo.completed })}
-                onEdit={() => beginEdit(todo)}
-                onDelete={() => onDelete(todo)}
-                onChangeTitle={setEditingTitle}
-                onSaveEdit={() => commitEdit(todo)}
-                onCancelEdit={cancelEdit}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      <button className="fantasy-quest-cta" type="button" onClick={() => composeInputRef.current?.focus()}>
-        <span aria-hidden="true">✦</span><strong>＋&nbsp;&nbsp;퀘스트 만들기</strong><span aria-hidden="true">✦</span>
-      </button>
-      <footer className="fantasy-quote">
-        <p>“작은 퀘스트가, 특별한 하루를 만든다.”</p>
-        <span>— Queuest</span>
-      </footer>
-
-      <section className="project-todo-panel" aria-labelledby="project-todo-title">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">PROJECT QUEUE</p>
-            <h2 id="project-todo-title">프로젝트의 할 일</h2>
-          </div>
-          <span className="section-note">{projectTodos?.length ?? 0}개</span>
-        </div>
-        {projectTodoLoadError ? (
-          <p className="validation-note" role="alert">프로젝트 할 일을 불러오지 못했습니다: {projectTodoLoadError}</p>
-        ) : projectTodos === null ? (
-          <p className="panel-empty" role="status">프로젝트 할 일을 불러오는 중…</p>
-        ) : projectTodos.length === 0 ? (
-          <p className="panel-empty">프로젝트를 만들고 퀘스트를 추가하면 이곳에서도 볼 수 있습니다.</p>
-        ) : (
-          <div className="todo-list project-todo-list">
-            {projectTodos.map((item) => (
-              <ProjectTodoRow
-                key={item.task.id}
-                item={item}
-                onOpen={() => onOpenProject(item.project.id)}
-                onOpenSource={item.task.sourceUrl ? () => void onOpenSource(item.task.sourceUrl!) : undefined}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {deletedTodo && (
-        <div className="undo-bar" role="status" aria-live="polite">
-          <span>“{deletedTodo.title}”을(를) 삭제했습니다.</span>
-          <button type="button" onClick={() => void onRecover()}>되돌리기</button>
-        </div>
-      )}
-
-      <section className="project-next-step" aria-labelledby="project-next-title">
-        <div>
-          <p className="eyebrow">NEXT WHEN READY</p>
-          <h2 id="project-next-title">프로젝트에서 이어가기</h2>
-          <p>할 일을 정리할 준비가 되면 원정과 스테이지를 열어보세요.</p>
-        </div>
-        <button className="secondary-button" type="button" onClick={() => onOpenProject()}>
-          프로젝트 열기 또는 만들기
-        </button>
-      </section>
-    </>
-  );
-}
-
-interface TodoRowProps {
-  todo: InboxTodo;
-  editing: boolean;
-  editingTitle: string;
-  onToggle: () => Promise<boolean>;
-  onEdit: () => void;
-  onDelete: () => Promise<boolean>;
-  onChangeTitle: (title: string) => void;
-  onSaveEdit: () => Promise<void>;
-  onCancelEdit: () => void;
-}
-
-function TodoRow({
-  todo,
-  editing,
-  editingTitle,
-  onToggle,
-  onEdit,
-  onDelete,
-  onChangeTitle,
-  onSaveEdit,
-  onCancelEdit,
-}: TodoRowProps) {
-  const editButtonRef = useRef<HTMLButtonElement>(null);
-  const previousEditingRef = useRef(editing);
-
-  useEffect(() => {
-    if (previousEditingRef.current && !editing) {
-      editButtonRef.current?.focus();
-    }
-
-    previousEditingRef.current = editing;
-  }, [editing]);
-
-  return (
-    <article className={`todo-row ${todo.completed ? "completed" : ""}`}>
-      <button
-        className="todo-check"
-        type="button"
-        aria-label={`${todo.title}, ${todo.completed ? "완료 취소" : "완료 처리"}`}
-        aria-pressed={todo.completed}
-        onClick={() => void onToggle()}
-      >
-        <span aria-hidden="true">{todo.completed ? "✓" : ""}</span>
-      </button>
-      {editing ? (
-        <form
-          className="todo-edit-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void onSaveEdit();
-          }}
-        >
-          <label className="sr-only" htmlFor={`edit-todo-${todo.id}`}>할 일 제목 수정</label>
-          <input
-            id={`edit-todo-${todo.id}`}
-            type="text"
-            value={editingTitle}
-            autoFocus
-            onChange={(event) => onChangeTitle(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                onCancelEdit();
-              }
-            }}
-          />
-          <button className="row-action save" type="submit">저장</button>
-          <button className="row-action" type="button" onClick={onCancelEdit}>취소</button>
-        </form>
-      ) : (
-        <div className="todo-copy">
-          <span className="todo-title">{todo.title}</span>
-          <span className="todo-meta">{todo.completed ? "완료" : "대기"}</span>
-        </div>
-      )}
-      {!editing && (
-        <details className="todo-actions todo-more">
-          <summary aria-label={`${todo.title} 작업 메뉴`}><PixelIcon name="more" /></summary>
-          <div className="todo-action-menu">
-            <button className="row-action" ref={editButtonRef} type="button" onClick={onEdit}>편집</button>
-            <button className="row-action danger" type="button" onClick={() => void onDelete()}>삭제</button>
-          </div>
-        </details>
-      )}
-    </article>
-  );
-}
-
-interface ProjectTodoRowProps {
-  item: ProjectTodo;
-  onOpen: () => void;
-  onOpenSource?: () => void;
-}
-
-function ProjectTodoRow({ item, onOpen, onOpenSource }: ProjectTodoRowProps) {
-  const statusLabel = item.task.quest?.acceptance === "pending" ? "미수락" : STATUS_COLUMNS.find((column) => column.status === item.task.status)?.label ?? item.task.status;
-
-  return (
-    <article className={`todo-row project-todo-row ${item.task.status === "done" ? "completed" : ""}`}>
-      <span className={`project-todo-status ${item.task.status}`} aria-label={`프로젝트 태스크 상태: ${statusLabel}`}>
-        {item.task.status === "done" ? "✓" : "◆"}
-      </span>
-      <div className="todo-copy">
-        <span className="todo-title">{item.task.title}</span>
-        <span className="todo-meta">{item.project.name} · {item.milestone.name} · {statusLabel}</span>
-      </div>
-      <div className="todo-actions">
-        {onOpenSource && <button className="row-action" type="button" onClick={onOpenSource}>원본</button>}
-        <button className="row-action" type="button" onClick={onOpen}>프로젝트 열기</button>
-      </div>
-    </article>
-  );
-}
 
 interface ProjectPickerProps {
   headingRef: RefObject<HTMLHeadingElement | null>;
@@ -2274,14 +1939,14 @@ function ProjectPicker({
       <div className="section-heading">
         <div>
           <p className="eyebrow">PROJECT GATE</p>
-          <h2 id="project-picker-title" ref={headingRef} tabIndex={-1}>어디서 이어갈까요?</h2>
+          <h2 id="project-picker-title" ref={headingRef} tabIndex={-1}>나의 원정</h2>
         </div>
         <span className="workspace-chip">
           {workspaces ? `${workspaces.length}개 워크스페이스` : "선택 후 로드"}
         </span>
       </div>
       <p className="project-picker-lede">
-        워크스페이스를 고른 뒤 프로젝트를 열거나, 새 워크스페이스와 원정을 차례로 만들 수 있습니다.
+        이어갈 원정을 선택하고, 현재 스테이지를 확인하세요.
       </p>
 
       {actionError && (
@@ -2315,7 +1980,7 @@ function ProjectPicker({
         <section className="state-panel error-state" role="alert">
           <span className="state-mark" aria-hidden="true">!</span>
           <p className="eyebrow">PROJECTS UNAVAILABLE</p>
-          <h2>프로젝트를 불러오지 못했습니다</h2>
+          <h2>원정을 불러오지 못했습니다</h2>
           <p>{projectLoadError ?? "로컬 저장소와 통신하지 못했습니다."}</p>
           <div className="state-actions">
             <button className="primary-button" type="button" onClick={() => void onLoadExisting()}>
@@ -2328,6 +1993,10 @@ function ProjectPicker({
         </section>
       ) : projectLoadState === "ready" ? (
         <>
+          <label className="quest-project-filter">워크스페이스<select value={selectedWorkspaceId ?? ""} onChange={event => { setSelectedWorkspaceId(event.target.value); setShowCreateForm(false); }}>
+            {workspaces?.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+          </select></label>
+          <details className="workspace-management"><summary>워크스페이스 관리</summary>
           <section className="workspace-manager" aria-labelledby="workspace-manager-title">
             <div className="section-heading">
               <div>
@@ -2366,7 +2035,7 @@ function ProjectPicker({
                         <span className="workspace-select-icon" aria-hidden="true">⌂</span>
                         <span className="workspace-select-copy">
                           <strong>{workspace.name}</strong>
-                          <small>{projectCount}개 프로젝트</small>
+                          <small>{projectCount}개 원정</small>
                         </span>
                       </button>
                       <div className="workspace-row-actions">
@@ -2396,12 +2065,13 @@ function ProjectPicker({
             )}
           </section>
 
+          </details>
           {selectedWorkspace && visibleProjectGraphs.length > 0 ? (
             <section className="project-list-panel" aria-labelledby="saved-projects-title">
               <div className="section-heading">
                 <div>
                   <p className="eyebrow">SAVED PROJECTS · {selectedWorkspace.name}</p>
-                  <h2 id="saved-projects-title">프로젝트 선택</h2>
+                  <h2 id="saved-projects-title">계속 이어갈 이야기</h2>
                 </div>
                 <span className="section-note">{visibleProjectGraphs.length}개</span>
               </div>
@@ -2418,24 +2088,28 @@ function ProjectPicker({
                       <span className="eyebrow">{graph.workspace.name}</span>
                       <strong>{graph.project.name}</strong>
                       <span>{graph.milestones.length}개 스테이지 · {graph.tasks.length}개 퀘스트</span>
+                      <span className="expedition-progress">
+                        <span>{PROJECT_STATUS_LABEL[calculateProjectStatus(graph.milestones, graph.tasks)]} · {calculateProjectProgress(graph.milestones, graph.tasks)}%</span>
+                        <span className="progress-track" role="progressbar" aria-label={`${graph.project.name} 진행률`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={calculateProjectProgress(graph.milestones, graph.tasks)}><span style={{ width: `${calculateProjectProgress(graph.milestones, graph.tasks)}%` }} /></span>
+                      </span>
                     </span>
                     <span className="project-list-arrow" aria-hidden="true">→</span>
                   </button>
                 ))}
               </div>
               <button className="secondary-button project-create-link" type="button" onClick={openProjectCreateForm}>
-                + 새 프로젝트 만들기
+                + 새 원정 만들기
               </button>
             </section>
           ) : selectedWorkspace ? (
             <section className="state-panel no-project-state" aria-labelledby="no-project-title">
               <span className="state-mark" aria-hidden="true">✦</span>
               <p className="eyebrow">WORKSPACE READY</p>
-              <h2 id="no-project-title">{selectedWorkspace.name}에 프로젝트가 없습니다</h2>
+              <h2 id="no-project-title">{selectedWorkspace.name}에 원정이 없습니다</h2>
               <p>이 워크스페이스에 첫 원정을 만들면 보드가 열립니다.</p>
               <div className="state-actions">
                 <button className="primary-button" type="button" onClick={openProjectCreateForm}>
-                  새 프로젝트 만들기
+                  새 원정 만들기
                 </button>
                 <button className="secondary-button" type="button" onClick={() => setWorkspaceEditor({})}>
                   워크스페이스 추가
@@ -2447,7 +2121,7 @@ function ProjectPicker({
               <span className="state-mark" aria-hidden="true">⌂</span>
               <p className="eyebrow">NO WORKSPACE YET</p>
               <h2 id="no-workspace-title">워크스페이스를 먼저 만들어 주세요</h2>
-              <p>프로젝트와 스테이지를 담을 첫 작업 공간이 필요합니다.</p>
+              <p>원정과 스테이지를 담을 첫 작업 공간이 필요합니다.</p>
               <button className="primary-button" type="button" onClick={() => setWorkspaceEditor({})}>
                 새 워크스페이스 만들기
               </button>
@@ -2476,7 +2150,7 @@ function ProjectPicker({
       {workspaceToDelete && (
         <ConfirmDialog
           title="워크스페이스를 삭제할까요?"
-          message={`“${workspaceToDelete.name}”의 프로젝트 ${projectGraphs?.filter((graph) => graph.workspace.id === workspaceToDelete.id).length ?? 0}개와 하위 데이터가 함께 삭제됩니다.`}
+          message={`“${workspaceToDelete.name}”의 원정 ${projectGraphs?.filter((graph) => graph.workspace.id === workspaceToDelete.id).length ?? 0}개와 하위 데이터가 함께 삭제됩니다.`}
           confirmLabel="워크스페이스 삭제"
           busy={workspaceMutating}
           onCancel={() => setWorkspaceToDelete(null)}
@@ -2526,7 +2200,7 @@ function WorkspaceEditor({ workspace, submitting, onCancel, onSubmit }: Workspac
           value={name}
           autoFocus
           disabled={submitting}
-          placeholder="예: 개인 프로젝트"
+          placeholder="예: 개인 원정"
           onChange={(event) => {
             setName(event.target.value);
             if (validationError) {
@@ -2553,8 +2227,8 @@ function ProjectLoadingState() {
     <section className="state-panel" role="status" aria-live="polite">
       <span className="state-mark loading-mark" aria-hidden="true">…</span>
       <p className="eyebrow">LOADING PROJECTS</p>
-      <h2>프로젝트를 준비하는 중</h2>
-      <p>선택할 프로젝트 그래프를 로컬 저장소에서 불러오고 있습니다.</p>
+      <h2>원정을 준비하는 중</h2>
+      <p>선택할 원정 그래프를 로컬 저장소에서 불러오고 있습니다.</p>
     </section>
   );
 }
@@ -2824,7 +2498,7 @@ function ProjectSettingsPanel({
     event.preventDefault();
     const trimmedName = name.trim();
     if (!trimmedName) {
-      setValidationError("프로젝트 이름을 입력하세요.");
+      setValidationError("원정 이름을 입력하세요.");
       return;
     }
 
@@ -2836,7 +2510,7 @@ function ProjectSettingsPanel({
       loadout: { agentTool, sourceTool },
     });
     if (!saved) {
-      setValidationError("프로젝트 설정을 저장하지 못했습니다.");
+      setValidationError("원정 설정을 저장하지 못했습니다.");
     }
   }
 
@@ -2845,13 +2519,13 @@ function ProjectSettingsPanel({
       <div className="section-heading">
         <div>
           <p className="eyebrow">EXPEDITION SETTINGS</p>
-          <h2 id="project-settings-title">프로젝트 설정</h2>
+          <h2 id="project-settings-title">원정 설정</h2>
         </div>
         <span className="section-note">경로 저장 전 폴더 확인</span>
       </div>
 
       <label>
-        프로젝트 이름
+        원정 이름
         <input
           type="text"
           value={name}
@@ -2868,7 +2542,7 @@ function ProjectSettingsPanel({
       <DirectoryField label="작업 폴더" value={repoPath} disabled={submitting} onChange={setRepoPath} />
       <small className="field-hint">비워두면 AI와 GitHub 기능이 비활성화됩니다.</small>
       <label>
-        프로젝트 스킬
+        원정 스킬
         <input
           type="text"
           value={skills}
@@ -2880,7 +2554,7 @@ function ProjectSettingsPanel({
 
       <div className="settings-subsection">
         <div className="panel-heading">
-          <h3>프로젝트 장비</h3>
+          <h3>원정 장비</h3>
           <button className="row-action" type="button" onClick={() => void onRefreshTools()} disabled={submitting}>
             PATH 다시 스캔
           </button>
@@ -2930,7 +2604,7 @@ function ProjectSettingsPanel({
           닫기
         </button>
         <button className="danger-button" type="button" onClick={onDelete} disabled={submitting}>
-          프로젝트 삭제
+          원정 삭제
         </button>
       </div>
     </form>
@@ -3128,6 +2802,7 @@ interface ProjectBoardProps {
 }
 
 function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox, onProjectDeleted, onOpenCharacter, onOpenAppSettings, windowError }: ProjectBoardProps) {
+  const [reviewTaskId, setReviewTaskId] = useState<string | null>(null);
   const [section, setSection] = useState<"project" | "plugins">("project");
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => { mainRef.current?.scrollTo(0, 0); }, [section]);
@@ -3147,7 +2822,8 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
     return () => { active = false; window.removeEventListener(SYNC_UPDATED, refresh); };
   }, [graph.project.id]);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
-    graph.milestones[0]?.id ?? null,
+    [...graph.milestones].sort((a, b) => a.order - b.order).find(milestone =>
+      isMilestoneUnlocked(milestone.id, graph.milestones, graph.tasks) && !isMilestoneComplete(milestone.id, graph.tasks))?.id ?? graph.milestones[0]?.id ?? null,
   );
   const [saveError, setSaveError] = useState<string | null>(null);
   const [mutation, setMutation] = useState<"task" | "milestone" | "project" | null>(null);
@@ -3261,14 +2937,8 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
         return;
       }
 
-      const confirmed = window.confirm(
-        `“${currentTask.title}”의 작업 결과를 확인하고 완료 처리할까요?`,
-      );
-      if (!confirmed) {
-        return;
-      }
-
-      confirmedByHuman = true;
+      setReviewTaskId(currentTask.id);
+      return;
     }
 
     try {
@@ -3511,7 +3181,6 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
       <AppHeader todoCount={activeCount} countLabel="현재 진행 중인 태스크 수"
         pinned={pinned} pinPending={pinPending} onTogglePinned={onTogglePinned}
         onOpenProject={onBackToInbox} projectLabel="인박스"
-        onOpenSettings={() => { setSection("project"); setShowProjectSettings(true); }}
         onOpenAppSettings={onOpenAppSettings} />
 
       <AppNavigation
@@ -3521,6 +3190,8 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
             onBackToInbox();
           } else if (next === "character") {
             onOpenCharacter();
+          } else if (next === "plugins") {
+            onOpenAppSettings();
           } else {
             setSection(next);
           }
@@ -3532,23 +3203,18 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
           <PluginsPanel />
         )}
         <div hidden={section !== "project"}>
-        <section className="workspace-header" aria-labelledby="workspace-title">
-          <div>
-            <p className="eyebrow">WORKSPACE</p>
-            <h2 id="workspace-title" ref={headingRef} tabIndex={-1}>{graph.workspace.name}</h2>
-          </div>
-          <span className="workspace-chip">로컬 저장소</span>
-        </section>
+        <p className="quest-breadcrumb">{graph.workspace.name}</p>
 
         <section className="project-banner" aria-labelledby="project-title">
           <div className="project-heading">
             <div className="project-token" aria-hidden="true"><PixelIcon name="flag" /></div>
             <div>
               <p className="eyebrow">SELECTED EXPEDITION</p>
-              <h2 id="project-title">{project.name}</h2>
+              <h2 id="project-title" ref={headingRef} tabIndex={-1}>{project.name}</h2>
             </div>
           </div>
           <div className="project-stats">
+            <button type="button" className="small-button" onClick={() => setShowProjectSettings(value => !value)} aria-expanded={showProjectSettings}>원정 설정</button>
             <span className={`status-pill ${projectStatus}`}>
               {PROJECT_STATUS_LABEL[projectStatus]}
             </span>
@@ -3557,7 +3223,7 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
           <div
             className="progress-track"
             role="progressbar"
-            aria-label={`프로젝트 진행률 ${projectProgress}%`}
+            aria-label={`원정 진행률 ${projectProgress}%`}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={projectProgress}
@@ -3593,7 +3259,7 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
               <p className="eyebrow">ROUTE MAP</p>
               <h2 id="stage-title">원정 경로</h2>
             </div>
-            <div className="stage-actions">
+            <details className="stage-management"><summary>스테이지 관리</summary><div className="stage-actions">
               <button
                 className="small-button"
                 type="button"
@@ -3640,11 +3306,11 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
                   </button>
                 </>
               )}
-            </div>
+            </div></details>
           </div>
 
           {orderedMilestones.length > 0 ? (
-            <div className="stage-map" role="list" aria-label="프로젝트 마일스톤">
+          <div className="stage-map" role="list" aria-label="원정 스테이지">
               {orderedMilestones.map((milestone, index) => {
                 const unlocked = isMilestoneUnlocked(milestone.id, orderedMilestones, tasks);
                 const complete = isMilestoneComplete(milestone.id, tasks);
@@ -3679,7 +3345,7 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
               <span className="state-mark" aria-hidden="true">＋</span>
               <p className="eyebrow">NO STAGES YET</p>
               <h2>아직 스테이지가 없습니다</h2>
-              <p>이 프로젝트에는 아직 원정 경로가 만들어지지 않았습니다.</p>
+              <p>이 원정에는 아직 원정 경로가 만들어지지 않았습니다.</p>
             </section>
           )}
 
@@ -3780,10 +3446,14 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
         )}
 
         </div>
-        <p hidden={section !== "project"} className="prototype-note">
-          프로젝트를 명시적으로 선택한 뒤 열리는 원정 보드입니다. 퀘스트·스테이지·프로젝트 설정은 로컬 SQLite에 저장됩니다.
-        </p>
       </main>
+
+      {reviewTaskId && (() => {
+        const task = tasks.find(item => item.id === reviewTaskId);
+        const milestone = milestones.find(item => item.id === task?.milestoneId);
+        return task && milestone ? <QuestDetail key={task.id} item={{ task, milestone, project, workspace: graph.workspace }}
+          onSave={persistTask} onClose={() => setReviewTaskId(null)} onOpenSource={url => openUrl(url)} /> : null;
+      })()}
 
       {taskToDelete && (
         <ConfirmDialog
@@ -3807,9 +3477,9 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
       )}
       {confirmProjectDelete && (
         <ConfirmDialog
-          title="프로젝트를 삭제할까요?"
+          title="원정을 삭제할까요?"
           message={`“${project.name}”의 모든 스테이지와 퀘스트가 함께 삭제됩니다.`}
-          confirmLabel="프로젝트 삭제"
+          confirmLabel="원정 삭제"
           busy={mutation === "project"}
           onCancel={() => setConfirmProjectDelete(false)}
           onConfirm={removeProject}

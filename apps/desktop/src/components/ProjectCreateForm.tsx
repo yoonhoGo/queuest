@@ -48,7 +48,7 @@ export function ProjectCreateForm({ workspace, initialTaskTitle, submitting, onC
     event.preventDefault();
     if (busy) return;
     if (!name.trim()) {
-      setValidationError("프로젝트 이름을 입력하세요.");
+      setValidationError("원정 이름을 입력하세요.");
       return;
     }
     setValidationError(null);
@@ -73,7 +73,7 @@ export function ProjectCreateForm({ workspace, initialTaskTitle, submitting, onC
         skills: [...new Set(skills.split(",").map((skill) => skill.trim()).filter(Boolean))],
       });
     } catch (reason: unknown) {
-      setValidationError(reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "프로젝트를 불러오지 못했습니다.");
+      setValidationError(reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "원정을 불러오지 못했습니다.");
     } finally {
       setCloning(false);
     }
@@ -82,11 +82,11 @@ export function ProjectCreateForm({ workspace, initialTaskTitle, submitting, onC
   return (
     <form className="project-create-form" onSubmit={handleSubmit} aria-busy={busy}>
       <div className="section-heading">
-        <div><p className="eyebrow">NEW EXPEDITION</p><h2>새 프로젝트 만들기</h2></div>
+        <div><p className="eyebrow">NEW EXPEDITION</p><h2>새 원정 만들기</h2></div>
         <span className="section-note">{workspace.name}</span>
       </div>
       <fieldset className="project-source" disabled={busy}>
-        <legend>프로젝트 가져오기</legend>
+        <legend>원정 가져오기</legend>
         <label><input type="radio" name="project-source" checked={source === "folder"} onChange={() => { setSource("folder"); setValidationError(null); }} />기존 폴더</label>
         <label><input type="radio" name="project-source" checked={source === "clone"} onChange={() => { setSource("clone"); setValidationError(null); }} />Git clone</label>
       </fieldset>
@@ -103,17 +103,17 @@ export function ProjectCreateForm({ workspace, initialTaskTitle, submitting, onC
           <p className="field-hint clone-destination">{parentPath && directoryName ? `${parentPath.replace(/\/$/, "")}/${directoryName}` : "선택한 위치 아래에 새 폴더를 만듭니다."}</p>
         </>
       )}
-      <label htmlFor="project-name">프로젝트 이름</label>
+      <label htmlFor="project-name">원정 이름</label>
       <input id="project-name" value={name} disabled={busy} placeholder="예: Queuest" onChange={(event) => setName(event.target.value)} />
       <label htmlFor="first-task-title">첫 퀘스트 <span>(선택)</span></label>
       <input id="first-task-title" value={firstTaskTitle} disabled={busy} placeholder="첫 번째 할 일" onChange={(event) => setFirstTaskTitle(event.target.value)} />
-      <label htmlFor="new-project-skills">프로젝트 스킬 <span>(선택)</span></label>
+      <label htmlFor="new-project-skills">원정 스킬 <span>(선택)</span></label>
       <input id="new-project-skills" value={skills} disabled={busy} placeholder="typescript, tauri, rust" onChange={(event) => setSkills(event.target.value)} />
-      {cloning && <p className="field-hint" role="status">저장소를 clone하고 있습니다. 완료되면 프로젝트를 엽니다.</p>}
+      {cloning && <p className="field-hint" role="status">저장소를 clone하고 있습니다. 완료되면 원정을 엽니다.</p>}
       {validationError && <p className="validation-note" role="alert">{validationError}</p>}
       <div className="form-actions">
         <button className="primary-button" type="submit" disabled={busy}>
-          {cloning ? "Clone 중…" : submitting ? "저장 중…" : source === "clone" ? "Clone 후 프로젝트 열기" : "프로젝트 만들기"}
+          {cloning ? "Clone 중…" : submitting ? "저장 중…" : source === "clone" ? "Clone 후 원정 열기" : "원정 만들기"}
         </button>
         <button className="secondary-button" type="button" onClick={onCancel} disabled={busy}>취소</button>
       </div>

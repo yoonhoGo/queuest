@@ -1,0 +1,73 @@
+/* Shared composition from Open Design's Queuest flow; colors follow the selected theme. */
+.quest-home { display: grid; gap: var(--space-3); min-width: 0; }
+.quest-home-heading h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--text-heading); }
+.quest-home-heading p { margin: 4px 0 0; color: var(--muted); }
+.quest-featured, .quest-queue { padding: var(--space-3); border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--paper-bright); min-width: 0; }
+.quest-featured { border-color: var(--ink); }
+.quest-home .quest-featured h3 { margin: 8px 0; font-size: 18px; line-height: 1.4; }
+.quest-featured .primary-button { width: 100%; }
+.quest-row-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+.quest-state { display: inline-flex; padding: 3px 7px; border: 1px solid var(--border-soft); color: var(--ink); font-size: 12px; background: var(--paper-deep); }
+.quest-state.review { background: var(--gold); }
+.quest-state.doing { background: var(--rust); }
+.quest-state.done { background: var(--mint); }
+.quest-state.pending { border-style: dashed; background: var(--paper-bright); }
+.quest-breadcrumb { display: block; margin: 6px 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.quest-home .quest-next { display: grid; gap: 4px; padding: 8px; margin: 8px 0; background: var(--paper); border: 1px solid var(--border-soft); font-size: 13px; }
+.quest-home .quest-queue .section-heading { margin-bottom: 8px; }
+.quest-home .quest-queue .section-heading h2 { margin: 0; font-size: 16px; }
+.quest-next strong { color: var(--ink); font-size: 12px; }
+.quest-filters { display: flex; gap: 6px; overflow-x: auto; padding: 4px 3px 8px; }
+.quest-filters button { flex: 0 0 auto; }
+.quest-filters [aria-pressed="true"] { background: var(--gold); color: var(--ink); border-color: var(--ink); }
+.quest-project-filter { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 4px 0 10px; }
+.quest-project-filter select { flex: 1; min-width: 0; width: 0; min-height: 36px; color: var(--ink); background: var(--paper-bright); border: 1px solid var(--border-soft); }
+.quest-capture { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 12px; }
+.quest-capture input, .quest-edit-label input, .quest-edit-fields input:not([type="checkbox"]), .quest-edit-fields textarea { min-width: 0; width: 100%; min-height: 40px; padding: 8px; border: 1px solid var(--border-soft); color: var(--ink); background: var(--paper-bright); }
+.quest-queue-list { display: grid; gap: 8px; }
+.quest-queue-row { display: grid; gap: 5px; width: 100%; padding: 12px; text-align: left; color: var(--ink); background: var(--paper-bright); border: 1px solid var(--border-soft); border-radius: var(--radius); }
+.quest-queue-row:hover { background: var(--paper); border-color: var(--teal); }
+.quest-queue-row > strong { font-size: 14px; }
+.quest-queue-row .quest-breadcrumb { margin: 0; }
+.quest-queue-row.done > strong { text-decoration: line-through; }
+.quest-row-next { color: var(--ink-soft); font-size: 12px; }
+.quest-dialog { width: min(640px, calc(100vw - 24px)); max-width: none; max-height: calc(100dvh - 24px); padding: 0; color: var(--ink); background: var(--paper-bright); border: var(--border); border-radius: var(--radius); box-shadow: 3px 3px 0 var(--shadow); overflow: auto; }
+.quest-dialog::backdrop { background: var(--overlay); }
+.quest-dialog-content { padding: var(--space-4); }
+.quest-dialog h2 { margin: 12px 0; font-size: var(--text-heading); }
+.quest-dialog h3 { font-size: 16px; margin: 0 0 8px; }
+.quest-dialog p { line-height: 1.6; }
+.quest-body { white-space: pre-wrap; }
+.quest-detail-section { padding: 14px 0; border-top: 1px solid var(--border-soft); }
+.quest-detail-section p { margin: 4px 0; white-space: pre-wrap; }
+.quest-criterion { display: flex; align-items: flex-start; gap: 10px; padding: 10px; margin-top: 6px; background: var(--paper); border: 1px solid var(--border-soft); font-size: 14px; }
+.quest-criterion input { flex: 0 0 18px; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--teal); }
+.quest-source { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; width: 100%; margin-top: 8px; padding: 10px; text-align: left; background: var(--paper); color: var(--ink); border: 1px solid var(--border-soft); }
+.quest-source small { grid-column: 1; color: var(--muted); }
+.quest-source > span:last-child { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+.quest-review-note { padding: 12px; background: var(--blue); border: 1px solid var(--border-soft); }
+.quest-review-note p { margin: 0 0 8px; font-size: 13px; }
+.quest-detail-actions, .quest-secondary-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.quest-detail-actions > button { flex: 1 1 130px; }
+.quest-edit-fields { padding: 0; border: 0; display: grid; gap: 12px; min-width: 0; }
+.quest-edit-fields label, .quest-edit-label { display: grid; gap: 6px; }
+.quest-home :is(h2, h3, strong, p, span), .quest-dialog :is(h2, h3, p, span, small) { word-break: keep-all; overflow-wrap: anywhere; }
+.workspace-management { border: 1px solid var(--border-soft); padding: 10px; margin-bottom: 12px; }
+.workspace-management > summary, .stage-management > summary { cursor: pointer; min-height: 34px; font-size: 13px; }
+.expedition-progress { display: block; margin-top: 8px; }
+.expedition-progress .progress-track { display: block; height: 10px; }
+:root[data-theme] .stage-section .stage-map { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; overflow: visible; padding: 8px 0; }
+:root[data-theme] .stage-section .stage-step { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-width: 0; width: auto; padding: 12px 0; border-bottom: 1px solid var(--border-soft); }
+.stage-section .stage-connector { display: none; }
+:root[data-theme] .stage-section .stage-label { width: auto; max-width: none; text-align: left; overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+:root[data-theme] .stage-section .stage-node { width: 36px; height: 36px; }
+.stage-management .stage-actions { flex-wrap: wrap; }
+.settings-overview { padding: 12px; margin-bottom: 16px; border: 1px solid var(--border-soft); background: var(--paper-bright); }
+.settings-overview h2 { margin: 0 0 6px; }
+@media (min-width: 760px) {
+  .quest-home { grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); align-items: start; }
+  .quest-home-heading { grid-column: 1 / -1; }
+  .quest-queue { grid-column: 2; grid-row: 2 / span 2; }
+  .quest-home:not(:has(.quest-featured)) .quest-queue { grid-column: 1 / -1; }
+  .quest-featured, .quest-queue { padding: 16px; }
+}
