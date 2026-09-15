@@ -20,7 +20,10 @@ export function AppHeader({
   return (
     <header className="topbar" data-tauri-drag-region={draggable}>
       <div className="brand-lockup" data-tauri-drag-region={draggable}>
-        <span className="brand-mark" data-tauri-drag-region={draggable}><PixelIcon name="star" /></span>
+        <span className="brand-mark" data-tauri-drag-region={draggable}>
+          <PixelIcon name="star" />
+          <span className="brand-flag" aria-hidden="true"><PixelIcon name="flag" /></span>
+        </span>
         <div className="brand-copy" data-tauri-drag-region={draggable}>
           <h1 data-tauri-drag-region={draggable}>Queuest</h1>
           <p data-tauri-drag-region={draggable}>작은 퀘스트로 채우는 하루</p>

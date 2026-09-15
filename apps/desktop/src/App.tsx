@@ -6,12 +6,6 @@ import { disable as disableAutostart, enable as enableAutostart } from "@tauri-a
 import { check as checkForUpdater } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import {
-  githubIssueExternalRef,
-  githubIssueToTask,
-  listGithubIssues,
-  type GithubIssue,
-} from "@queuest/adapter-github";
-import {
   activeTaskCount,
   createQuestContext,
   getTrackedQuests,
@@ -30,7 +24,7 @@ import {
   retreatTaskStatus,
   transitionTaskStatus,
 } from "@queuest/domain";
-import { GithubReviewPanel, JiraImportPanel, PendingQuestPanel } from "./components/ExternalWork";
+import { PendingQuestPanel } from "./components/ExternalWork";
 import { CharacterSprite } from "./components/CharacterSprite.tsx";
 import { QuestContextEditor, QuestContextSummary } from "./components/QuestContext.tsx";
 import { APPEARANCE_COLORS, SPRITE_JOBS, encodeSpriteAppearance, resolveSpriteAppearance, deriveSpriteState } from "./components/sprite.ts";
@@ -96,6 +90,7 @@ import {
   saveAppSettings,
   type AppSettings,
 } from "./data/settings";
+import { startExternalSync, refreshExternalWork, subscribeSync, getSyncSnapshot, SYNC_UPDATED } from "./data/external-sync";
 import { AppHeader } from "./components/AppHeader";
 import { CharacterCompletionStats } from "./components/CharacterCompletionStats";
 import { PixelIcon } from "./components/PixelIcon";
@@ -104,6 +99,7 @@ import { DirectoryField } from "./components/DirectoryField";
 import "./App.css";
 import "./styles/retro-shell.css";
 import "./styles/retro-content.css";
+import "./styles/default-theme.css";
 
 const STATUS_COLUMNS: Array<{ status: TaskStatus; label: string; hint: string }> = [
   { status: "todo", label: "대기", hint: "아직 시작하지 않은 퀘스트" },
@@ -139,19 +135,24 @@ const JOB_LABEL: Record<Character["job"], string> = {
 type AppView = "inbox" | "project-picker" | "project" | "character" | "plugins";
 type ProjectLoadState = "idle" | "loading" | "ready" | "error";
 type WorkspaceMutation = "create" | "update" | "delete" | null;
-type AppTheme = "retro" | "fantasy";
+type AppTheme = "default" | "retro" | "fantasy";
 
 const THEME_STORAGE_KEY = "queuest:theme";
 
 function readStoredTheme(): AppTheme {
   try {
-    return localStorage.getItem(THEME_STORAGE_KEY) === "fantasy" ? "fantasy" : "retro";
+    const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    if (storedTheme === "retro" || storedTheme === "fantasy") {
+      return storedTheme;
+    }
+    return "default";
   } catch {
-    return "retro";
+    return "default";
   }
 }
 
 function App() {
+  useEffect(() => startExternalSync(), []);
   const [view, setView] = useState<AppView>("inbox");
   const [theme, setTheme] = useState<AppTheme>(readStoredTheme);
   const [showAppSettings, setShowAppSettings] = useState(false);
@@ -319,6 +320,15 @@ function App() {
       mounted = false;
     };
   }, [reloadToken]);
+
+  useEffect(() => {
+    const refresh = () => {
+      setReloadToken(value => value + 1);
+      void refreshProjectPickerData().catch(() => undefined);
+    };
+    window.addEventListener(SYNC_UPDATED, refresh);
+    return () => window.removeEventListener(SYNC_UPDATED, refresh);
+  }, []);
 
   async function createTodo(title: string): Promise<boolean> {
     const todo: InboxTodo = {
@@ -614,7 +624,7 @@ function App() {
       />
       <AppNavigation active={view} onNavigate={(next) => next === "project" ? openProjectPicker() : setView(next)} />
       <main className="main-content" ref={contentRef}>
-        {view === "character" ? <CharacterHome /> : view === "plugins" ? <PluginsPanel onOpenProject={openProjectPicker} /> : view === "project-picker" ? (
+        {view === "character" ? <CharacterHome /> : view === "plugins" ? <PluginsPanel /> : view === "project-picker" ? (
           <ProjectPicker
             headingRef={viewHeadingRef}
             onBack={() => setView("inbox")}
@@ -702,7 +712,7 @@ function AppNavigation({ active, onNavigate }: {
 }) {
   return (
     <nav className="app-navigation" aria-label="주요 화면">
-      {([['inbox', '할 일', 'clipboard'], ['project', '프로젝트', 'flag'], ['character', '캐릭터', 'person'], ['plugins', '플러그인', 'puzzle']] as const).map(([id, label, icon]) => (
+      {([['inbox', '할 일', 'clipboard'], ['project', '프로젝트', 'flag'], ['character', '캐릭터', 'person'], ['plugins', '설정', 'settings']] as const).map(([id, label, icon]) => (
         <button type="button" key={id}
           aria-current={active === id || (id === "project" && active === "project-picker") ? "page" : undefined}
           onClick={() => onNavigate(id)}>
@@ -762,6 +772,11 @@ function AppSettingsDialog({
           </div>
           <p className="theme-picker-description">화면 분위기를 바꿔도 퀘스트와 프로젝트 데이터는 그대로 유지됩니다.</p>
           <div className="theme-options" role="group" aria-label="앱 테마">
+            <button className={`theme-choice default ${theme === "default" ? "selected" : ""}`} type="button" aria-pressed={theme === "default"} onClick={() => onThemeChange("default")}>
+              <span className="theme-swatch" aria-hidden="true"><i /><i /><i /></span>
+              <span><strong>기본</strong><small>종이 보드와 청록색 여정</small></span>
+              {theme === "default" && <em>사용 중</em>}
+            </button>
             <button className={`theme-choice retro ${theme === "retro" ? "selected" : ""}`} type="button" aria-pressed={theme === "retro"} onClick={() => onThemeChange("retro")}>
               <span className="theme-swatch" aria-hidden="true"><i /><i /><i /></span>
               <span><strong>레트로</strong><small>모눈 종이와 민트 창</small></span>
@@ -773,7 +788,7 @@ function AppSettingsDialog({
               {theme === "fantasy" && <em>사용 중</em>}
             </button>
           </div>
-          <p className="theme-selection-status" role="status" aria-live="polite">{theme === "fantasy" ? "별빛 모험 테마를 적용했습니다." : "레트로 테마를 적용했습니다."}</p>
+          <p className="theme-selection-status" role="status" aria-live="polite">{theme === "fantasy" ? "별빛 모험 테마를 적용했습니다." : theme === "retro" ? "레트로 테마를 적용했습니다." : "기본 테마를 적용했습니다."}</p>
         </section>
 
         <section className="settings-section" aria-labelledby="startup-settings-title">
@@ -1418,7 +1433,7 @@ function PluginConnectionEditor({
               placeholder="owner/repository"
               disabled={submitting}
             />
-            <span className="field-hint">플러그인 조회에 사용할 기본 저장소입니다. 프로젝트의 gh 가져오기는 작업 폴더 설정을 따릅니다.</span>
+            <span className="field-hint">저장한 인증 정보로 이 저장소의 새 이슈를 주기적으로 확인합니다.</span>
           </label>
         )}
 
@@ -1517,11 +1532,9 @@ function PluginConnectionEditor({
   );
 }
 
-interface PluginsPanelProps {
-  onOpenProject?: () => void;
-}
-
-function PluginsPanel({ onOpenProject }: PluginsPanelProps) {
+function PluginsPanel() {
+  const [sync, setSync] = useState(getSyncSnapshot);
+  useEffect(() => subscribeSync(() => setSync(getSyncSnapshot())), []);
   const [tools, setTools] = useState<ToolDiscovery | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connections, setConnections] = useState<PluginConnection[] | null>(null);
@@ -1645,6 +1658,7 @@ function PluginsPanel({ onOpenProject }: PluginsPanelProps) {
         throw reason;
       }
       setConnections(await loadPluginConnections());
+      void refreshExternalWork(true);
       setConnectionEditor(null);
       return true;
     } catch (reason: unknown) {
@@ -1678,14 +1692,21 @@ function PluginsPanel({ onOpenProject }: PluginsPanelProps) {
 
   return <section aria-labelledby="plugins-title">
     <p className="eyebrow">CONNECTIONS & TOOLS</p>
-    <h2 id="plugins-title">플러그인과 도구</h2>
+    <h2 id="plugins-title">연결 설정</h2>
+    <section className="editor-panel" aria-label="작업 동기화">
+      <div className="section-heading"><h3>작업 동기화</h3>
+        <button className="small-button" type="button" disabled={sync.running || connectionMutation !== null} onClick={() => void refreshExternalWork()}>{sync.running ? "새로고침 중…" : "새로고침"}</button></div>
+      <p className="field-hint">앱 실행 중 5분마다 Jira·GitHub의 새 작업을 자동으로 확인합니다. 연결별 원정에 저장하며 기존 퀘스트의 편집 내용과 완료 상태는 유지합니다.</p>
+      <p role="status">{sync.running ? "백그라운드에서 작업을 확인하고 있습니다." : sync.lastSuccess ? `최근 동기화 ${new Date(sync.lastSuccess).toLocaleString("ko-KR")}` : "아직 동기화되지 않았습니다."}</p>
+      {sync.errors.map(message => <p className="validation-note" role="alert" key={message}>{message}</p>)}
+    </section>
     <p className="page-description">외부 서비스와 로컬 도구를 한곳에서 확인하세요.</p>
     <div className="section-heading"><h3>로컬 도구</h3><button className="small-button" type="button" disabled={scanning} onClick={() => setReload((value) => value + 1)}>{scanning ? "확인 중…" : "다시 확인"}</button></div>
     {error && <p className="action-error" role="alert">{error}</p>}
     {scanning && <p role="status">설치 및 인증 상태를 확인하는 중…</p>}
     {tools && <div className="plugin-list">{([tools.claude, tools.gh, tools.jj]).map((tool) => <article className="plugin-card" key={tool.id}>
       <div className="section-heading"><h3>{tool.id}</h3><span className={`tool-tag ${tool.installed && tool.authenticated !== false ? "equipped" : "warning"}`}>{toolStatusLabel(tool)}</span></div>
-      <p>{tool.id === "claude" ? "프로젝트의 AI 작업 실행 도구" : tool.id === "gh" ? "GitHub 이슈 가져오기 도구" : "로컬 버전 관리 도구"}</p>
+      <p>{tool.id === "claude" ? "프로젝트의 AI 작업 실행 도구" : tool.id === "gh" ? "GitHub 로컬 CLI" : "로컬 버전 관리 도구"}</p>
       {tool.path && <code>{tool.path}</code>}
     </article>)}</div>}
     <h3>서비스 플러그인</h3>
@@ -1710,17 +1731,17 @@ function PluginsPanel({ onOpenProject }: PluginsPanelProps) {
       const hasMissingCredential = connector.credentialKind !== "none"
         && connectorConnections.some((connection) => !connection.credentialStored);
       const status = connectorConnections.length === 0
-        ? connector.id === "github" ? "가져오기 사용 가능" : "미연결"
+        ? "미연결"
         : hasMissingCredential ? "credential 필요" : "설정됨";
       const statusClass = connectorConnections.length === 0
-        ? connector.id === "github" ? "equipped" : "muted"
+        ? "muted"
         : hasMissingCredential ? "warning" : "equipped";
       return <article className="plugin-card" key={connector.id}>
         <div className="section-heading"><h3>{connector.name}</h3><span className={`tool-tag ${statusClass}`}>{status}</span></div>
-        <p>{connector.id === "github" ? "프로젝트 작업 폴더와 gh 인증을 사용해 이슈를 선택한 스테이지의 퀘스트로 가져옵니다." : connector.description}</p>
+        <p>{connector.id === "github" ? "연결된 저장소의 새 이슈와 나에게 요청된 PR 리뷰를 백그라운드에서 퀘스트로 저장합니다." : connector.description}</p>
         <div className="plugin-card-actions">
           <button className="secondary-button" type="button" onClick={() => openConnectionEditor(connector)}>연결 추가</button>
-          {connector.id === "github" && onOpenProject && <button className="secondary-button" type="button" onClick={() => onOpenProject()}>프로젝트에서 GitHub 사용</button>}
+
         </div>
         {connectorConnections.length > 0 && (
           <div className="plugin-connection-list" aria-label={`${connector.name} 저장된 연결`}>
@@ -1912,7 +1933,7 @@ function TodoInbox({
         {validationError && <p className="validation-note" role="alert">{validationError}</p>}
       </section>
 
-      <GithubReviewPanel />
+
       {getTrackedQuests(projectTodos ?? []).length > 0 && <section className="editor-panel" aria-labelledby="tracked-quests-title">
         <h2 id="tracked-quests-title">추적 중인 퀘스트</h2>
         {getTrackedQuests(projectTodos ?? []).map(item => <article key={item.task.id}>
@@ -3046,187 +3067,6 @@ function CharacterSettingsPanel({
   );
 }
 
-interface GithubImportPanelProps {
-  project: Project;
-  milestones: Milestone[];
-  tasks: Task[];
-  tools: ToolDiscovery | null;
-  defaultMilestoneId?: string;
-  submitting: boolean;
-  onCancel: () => void;
-  onImport: (issues: GithubIssue[], milestoneId: string) => Promise<boolean>;
-}
-
-function GithubImportPanel({
-  project,
-  milestones,
-  tasks,
-  tools,
-  defaultMilestoneId,
-  submitting,
-  onCancel,
-  onImport,
-}: GithubImportPanelProps) {
-  const [issues, setIssues] = useState<GithubIssue[] | null>(null);
-  const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set());
-  const [milestoneId, setMilestoneId] = useState(defaultMilestoneId ?? milestones[0]?.id ?? "");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const existingRefs = useMemo(
-    () => new Set(tasks.flatMap((task) => task.externalRef ? [task.externalRef] : [])),
-    [tasks],
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    listGithubIssues(project)
-      .then((loadedIssues) => {
-        if (cancelled) {
-          return;
-        }
-        setIssues(loadedIssues);
-        setSelectedRefs(new Set(
-          loadedIssues
-            .filter((issue) => !existingRefs.has(githubIssueExternalRef(issue)))
-            .map(githubIssueExternalRef),
-        ));
-      })
-      .catch((reason: unknown) => {
-        if (!cancelled) {
-          setError(readableError(reason));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [existingRefs, project]);
-
-  function toggleIssue(issue: GithubIssue): void {
-    const ref = githubIssueExternalRef(issue);
-    setSelectedRefs((current) => {
-      const next = new Set(current);
-      if (next.has(ref)) {
-        next.delete(ref);
-      } else if (!existingRefs.has(ref)) {
-        next.add(ref);
-      }
-      return next;
-    });
-  }
-
-  function selectAllNewIssues(): void {
-    setSelectedRefs(new Set(
-      (issues ?? [])
-        .filter((issue) => !existingRefs.has(githubIssueExternalRef(issue)))
-        .map(githubIssueExternalRef),
-    ));
-  }
-
-  async function handleImport(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    const selectedIssues = (issues ?? []).filter((issue) => selectedRefs.has(githubIssueExternalRef(issue)));
-    if (!milestoneId) {
-      setError("가져올 대상 스테이지를 선택하세요.");
-      return;
-    }
-    if (selectedIssues.length === 0) {
-      setError("가져올 새 GitHub 이슈를 하나 이상 선택하세요.");
-      return;
-    }
-
-    setError(null);
-    if (!(await onImport(selectedIssues, milestoneId))) {
-      setError("GitHub 이슈를 저장하지 못했습니다.");
-    }
-  }
-
-  async function openIssue(issue: GithubIssue): Promise<void> {
-    try {
-      await openUrl(issue.url);
-    } catch (reason: unknown) {
-      setError(`원본 링크를 열지 못했습니다: ${readableError(reason)}`);
-    }
-  }
-
-  const ghUnavailable = tools?.gh.installed === false;
-  const ghNeedsAuth = tools?.gh.authenticated === false;
-
-  return (
-    <form className="editor-panel github-import-panel" onSubmit={(event) => void handleImport(event)}>
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">GITHUB PLUGIN</p>
-          <h2>GitHub 이슈 가져오기</h2>
-        </div>
-        <span className="section-note">읽기 전용</span>
-      </div>
-      <p className="field-hint">
-        {project.repoPath ? `${project.repoPath}의 이슈를 선택한 스테이지에 퀘스트로 저장합니다.` : "프로젝트 작업 폴더가 필요합니다."}
-      </p>
-      {ghUnavailable && <p className="validation-note" role="alert">gh가 설치되어 있지 않습니다.</p>}
-      {ghNeedsAuth && <p className="validation-note" role="alert">gh 인증이 필요합니다. 터미널에서 `gh auth login`을 먼저 실행하세요.</p>}
-      <label>
-        가져올 스테이지
-        <select value={milestoneId} disabled={submitting || milestones.length === 0} onChange={(event) => setMilestoneId(event.target.value)}>
-          {milestones.map((milestone) => <option key={milestone.id} value={milestone.id}>{milestone.name}</option>)}
-        </select>
-      </label>
-      <div className="import-toolbar">
-        <span className="section-note">
-          {selectedRefs.size}개 선택 · {issues?.length ?? 0}개 발견
-        </span>
-        <button className="small-button" type="button" disabled={loading || submitting || !issues} onClick={selectAllNewIssues}>
-          새 이슈 모두 선택
-        </button>
-      </div>
-      {error && <p className="validation-note" role="alert">{error}</p>}
-      {loading ? (
-        <p className="panel-empty" role="status">GitHub 이슈를 불러오는 중…</p>
-      ) : issues && issues.length > 0 ? (
-        <div className="github-issue-list" role="list" aria-label="GitHub 이슈 목록">
-          {issues.map((issue) => {
-            const ref = githubIssueExternalRef(issue);
-            const duplicate = existingRefs.has(ref);
-            return (
-              <div className={`github-issue-row ${duplicate ? "duplicate" : ""}`} key={ref} role="listitem">
-                <label className="github-issue-select">
-                  <input
-                    type="checkbox"
-                    checked={selectedRefs.has(ref)}
-                    disabled={duplicate || submitting}
-                    onChange={() => toggleIssue(issue)}
-                  />
-                  <span className="github-issue-copy">
-                    <strong>{issue.title}</strong>
-                    <small>{issue.state === "CLOSED" ? "닫힘" : "열림"}{duplicate ? " · 이미 가져옴" : ""}</small>
-                  </span>
-                </label>
-                <button className="row-action" type="button" onClick={() => void openIssue(issue)}>원본</button>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="panel-empty">가져올 GitHub 이슈가 없습니다.</p>
-      )}
-      <div className="form-actions">
-        <button className="primary-button" type="submit" disabled={submitting || loading || selectedRefs.size === 0}>
-          {submitting ? "저장 중…" : `${selectedRefs.size}개 가져오기`}
-        </button>
-        <button className="secondary-button" type="button" onClick={onCancel} disabled={submitting}>취소</button>
-      </div>
-    </form>
-  );
-}
-
 interface ConfirmDialogProps {
   title: string;
   message: string;
@@ -3297,6 +3137,15 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
     [...graph.milestones].sort((left, right) => left.order - right.order),
   );
   const [tasks, setTasks] = useState<Task[]>(graph.tasks);
+  useEffect(() => {
+    let active = true;
+    const refresh = () => { void loadProjectGraphs().then(graphs => {
+      const updated = graphs.find(item => item.project.id === graph.project.id);
+      if (active && updated) setTasks(current => [...current, ...updated.tasks.filter(task => !current.some(existing => existing.id === task.id))]);
+    }).catch(() => undefined); };
+    window.addEventListener(SYNC_UPDATED, refresh);
+    return () => { active = false; window.removeEventListener(SYNC_UPDATED, refresh); };
+  }, [graph.project.id]);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
     graph.milestones[0]?.id ?? null,
   );
@@ -3308,8 +3157,6 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
   } | null>(null);
   const [milestoneEditor, setMilestoneEditor] = useState<{ milestone?: Milestone } | null>(null);
   const [showProjectSettings, setShowProjectSettings] = useState(false);
-  const [githubImportOpen, setGithubImportOpen] = useState(false);
-  const [jiraImportOpen, setJiraImportOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [milestoneToDelete, setMilestoneToDelete] = useState<Milestone | null>(null);
   const [confirmProjectDelete, setConfirmProjectDelete] = useState(false);
@@ -3386,44 +3233,6 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
       );
       return true;
     } catch (error: unknown) {
-      setSaveError(readableError(error));
-      return false;
-    } finally {
-      setMutation(null);
-    }
-  }
-
-  async function importExternalTasks(importedTasks: Task[]): Promise<boolean> {
-    const existingRefs = new Set(
-      tasks.flatMap((task) => task.externalRef ? [task.externalRef] : []),
-    );
-    const newTasks = importedTasks.filter((task) => {
-      if (!task.externalRef || existingRefs.has(task.externalRef)) {
-        return false;
-      }
-      existingRefs.add(task.externalRef);
-      return true;
-    });
-
-    if (newTasks.length === 0) {
-      setSaveError("선택한 외부 작업은 이미 이 프로젝트에 가져와져 있습니다.");
-      return false;
-    }
-
-    setSaveError(null);
-    setMutation("task");
-    const savedTasks: Task[] = [];
-    try {
-      for (const task of newTasks) {
-        await saveTask(task);
-        savedTasks.push(task);
-      }
-      setTasks((current) => [...current, ...savedTasks]);
-      return true;
-    } catch (error: unknown) {
-      if (savedTasks.length > 0) {
-        setTasks((current) => [...current, ...savedTasks]);
-      }
       setSaveError(readableError(error));
       return false;
     } finally {
@@ -3720,12 +3529,7 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
       <main className="main-content" ref={mainRef}>
         {windowError && <p className="action-error" role="alert">{windowError}</p>}
         {section === "plugins" && (
-          <PluginsPanel
-            onOpenProject={() => {
-              setSection("project");
-              setGithubImportOpen(true);
-            }}
-          />
+          <PluginsPanel />
         )}
         <div hidden={section !== "project"}>
         <section className="workspace-header" aria-labelledby="workspace-title">
@@ -3889,32 +3693,6 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
           )}
         </section>
 
-        {jiraImportOpen && <JiraImportPanel project={project} milestones={orderedMilestones} tasks={tasks}
-          defaultMilestoneId={selectedMilestone?.id} submitting={mutation === "task"}
-          onCancel={() => setJiraImportOpen(false)} onImport={async imported => {
-            const saved = await importExternalTasks(imported); if (saved) setJiraImportOpen(false); return saved;
-          }} />}
-
-        {githubImportOpen && (
-          <GithubImportPanel
-            project={project}
-            milestones={orderedMilestones}
-            tasks={tasks}
-            tools={tools}
-            defaultMilestoneId={selectedMilestone?.id}
-            submitting={mutation === "task"}
-            onCancel={() => setGithubImportOpen(false)}
-            onImport={async (issues, milestoneId) => {
-              const importedTasks = issues.map((issue) => githubIssueToTask(issue, project, milestoneId));
-              const saved = await importExternalTasks(importedTasks);
-              if (saved) {
-                setGithubImportOpen(false);
-              }
-              return saved;
-            }}
-          />
-        )}
-
         {selectedMilestone ? (
           <section className="quest-section" aria-labelledby="quest-title">
             <div className="section-heading quest-heading">
@@ -3924,15 +3702,6 @@ function ProjectBoard({ graph, pinned, pinPending, onTogglePinned, onBackToInbox
               </div>
               <div className="quest-heading-actions">
                 <span className="section-note">{selectedTasks.length}개의 퀘스트</span>
-                <button
-                  className="small-button"
-                  type="button"
-                  onClick={() => setGithubImportOpen(true)}
-                  disabled={mutation !== null || orderedMilestones.length === 0}
-                >
-                  GitHub 가져오기
-                </button>
-                <button className="small-button" type="button" disabled={mutation !== null} onClick={() => setJiraImportOpen(true)}>Jira 가져오기</button>
                 <button
                   className="small-button accent"
                   type="button"

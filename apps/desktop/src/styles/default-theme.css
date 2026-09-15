@@ -1,0 +1,871 @@
+/*
+ * 기본 테마
+ *
+ * 첨부된 Queuest 레퍼런스의 밝은 모눈 종이, 민트 헤더, 연결된 탭,
+ * 종이 카드, 금색 진행 상태와 청록색 주요 동작을 실제 앱 셸에 맞춘다.
+ * 기존 retro/fantasy 테마와 충돌하지 않도록 모든 규칙을 테마 선택자로
+ * 한정한다.
+ */
+.brand-flag {
+  display: none;
+}
+
+:root[data-theme="default"] {
+  color-scheme: light;
+  --ink: #182d31;
+  --ink-soft: #4d6466;
+  --paper: #fbfaf4;
+  --paper-bright: #fffdf8;
+  --paper-cream: #f4f7f3;
+  --paper-deep: #e7edeb;
+  --mint: #d6e7df;
+  --teal: #0e5a62;
+  --blue: #e7f1f0;
+  --gold: #efc45f;
+  --rust: #d99a57;
+  --error: #a44835;
+  --muted: #637779;
+  --muted-light: #637779;
+  --shadow: #9db4b2;
+  --border-soft: #b5c8c5;
+  --grid-line: rgb(72 126 132 / 16%);
+  --overlay: rgb(24 45 49 / 42%);
+  --border: 2px solid var(--ink);
+  --radius: 3px;
+}
+
+:root[data-theme="default"] body {
+  min-height: 100vh;
+  background-color: var(--blue);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+:root[data-theme="default"] .app-shell {
+  height: calc(100dvh - 16px);
+  margin: var(--space-2);
+  border: var(--border);
+  border-radius: 4px;
+  background: var(--paper);
+  box-shadow: 4px 4px 0 var(--shadow);
+}
+
+:root[data-theme="default"] .topbar {
+  min-height: 54px;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--mint);
+}
+
+:root[data-theme="default"] .brand-lockup {
+  gap: var(--space-2);
+}
+
+:root[data-theme="default"] .brand-mark {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  box-shadow: none;
+  color: var(--ink);
+  background: transparent;
+}
+
+:root[data-theme="default"] .brand-mark .pixel-icon {
+  position: absolute;
+  inset: 2px;
+  width: 24px;
+  height: 24px;
+}
+
+:root[data-theme="default"] .brand-mark .pixel-icon-star {
+  display: none;
+}
+
+:root[data-theme="default"] .brand-flag {
+  position: absolute;
+  inset: 2px;
+  display: block;
+}
+
+:root[data-theme="default"] .brand-flag .pixel-icon-flag {
+  display: block;
+  width: 24px;
+  height: 24px;
+  color: var(--ink);
+}
+
+:root[data-theme="default"] .brand-lockup h1 {
+  color: var(--ink);
+  font: 16px/1.5 var(--font-pixel);
+  letter-spacing: -1px;
+}
+
+:root[data-theme="default"] .brand-lockup h1::after {
+  content: ".";
+}
+
+:root[data-theme="default"] .brand-copy p {
+  display: none;
+}
+
+:root[data-theme="default"] .topbar-actions {
+  gap: var(--space-1);
+}
+
+:root[data-theme="default"] .icon-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: transparent;
+}
+
+:root[data-theme="default"] .icon-button:hover,
+:root[data-theme="default"] .pin-button.active {
+  border-color: var(--ink);
+  background: var(--gold);
+}
+
+:root[data-theme="default"] .active-counter {
+  color: var(--ink);
+  font: var(--text-small)/1.5 var(--font-mono);
+}
+
+:root[data-theme="default"] .active-counter span {
+  color: var(--teal);
+}
+
+:root[data-theme="default"] .topbar-project-button {
+  display: none;
+}
+
+:root[data-theme="default"] .app-navigation {
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--paper-bright);
+}
+
+:root[data-theme="default"] .app-navigation button {
+  min-height: 42px;
+  border: 0;
+  border-right: 1px solid var(--border-soft);
+  border-radius: 0;
+  color: var(--ink);
+  background: var(--paper-bright);
+  font-size: var(--text-control);
+  font-weight: 700;
+}
+
+:root[data-theme="default"] .app-navigation button:last-child {
+  border-right: 0;
+}
+
+:root[data-theme="default"] .app-navigation button:hover {
+  background: var(--paper-deep);
+}
+
+:root[data-theme="default"] .app-navigation button[aria-current="page"],
+:root[data-theme="default"] .app-navigation button[aria-current="page"]:hover {
+  color: var(--ink);
+  background: var(--gold);
+  box-shadow: none;
+}
+
+:root[data-theme="default"] .app-navigation .pixel-icon {
+  display: none;
+}
+
+:root[data-theme="default"] .main-content {
+  max-width: none;
+  padding: var(--space-4) var(--space-3) var(--space-6);
+  scrollbar-color: var(--shadow) var(--paper);
+}
+
+:root[data-theme="default"] h1,
+:root[data-theme="default"] h2,
+:root[data-theme="default"] h3,
+:root[data-theme="default"] h4,
+:root[data-theme="default"] p,
+:root[data-theme="default"] label {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+:root[data-theme="default"] h2 {
+  font-size: var(--text-heading);
+  line-height: 1.35;
+}
+
+:root[data-theme="default"] h3,
+:root[data-theme="default"] h4 {
+  font-size: var(--text-large);
+  line-height: 1.45;
+}
+
+:root[data-theme="default"] .eyebrow {
+  color: var(--muted);
+  font-size: var(--text-caption);
+  letter-spacing: .08em;
+}
+
+:root[data-theme="default"] .workspace-chip,
+:root[data-theme="default"] .sheet-rule,
+:root[data-theme="default"] .job-badge,
+:root[data-theme="default"] .status-pill {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--blue);
+}
+
+:root[data-theme="default"] .section-heading {
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+:root[data-theme="default"] .section-note {
+  color: var(--muted);
+}
+
+:root[data-theme="default"] .primary-button,
+:root[data-theme="default"] .secondary-button,
+:root[data-theme="default"] .small-button,
+:root[data-theme="default"] .row-action,
+:root[data-theme="default"] .advance-button,
+:root[data-theme="default"] .danger-button {
+  border-radius: var(--radius);
+}
+
+:root[data-theme="default"] .primary-button,
+:root[data-theme="default"] .secondary-button {
+  min-height: 40px;
+  border: var(--border);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+:root[data-theme="default"] .primary-button,
+:root[data-theme="default"] .advance-button {
+  border-color: var(--teal);
+  color: var(--paper-bright);
+  background: var(--teal);
+}
+
+:root[data-theme="default"] .secondary-button,
+:root[data-theme="default"] .small-button,
+:root[data-theme="default"] .row-action {
+  border-color: var(--border-soft);
+  color: var(--ink);
+  background: var(--paper-bright);
+}
+
+:root[data-theme="default"] .small-button.accent {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--gold);
+}
+
+:root[data-theme="default"] .primary-button:hover,
+:root[data-theme="default"] .secondary-button:hover,
+:root[data-theme="default"] .small-button:hover,
+:root[data-theme="default"] .row-action:hover,
+:root[data-theme="default"] .advance-button:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--gold);
+}
+
+:root[data-theme="default"] .danger-button {
+  border-color: var(--error);
+  color: var(--error);
+  background: var(--paper-bright);
+}
+
+:root[data-theme="default"] .danger-button:hover,
+:root[data-theme="default"] .row-action.danger:hover {
+  color: var(--paper-bright);
+  background: var(--error);
+}
+
+:root[data-theme="default"] button:focus-visible,
+:root[data-theme="default"] input:focus-visible,
+:root[data-theme="default"] textarea:focus-visible,
+:root[data-theme="default"] select:focus-visible {
+  outline: 3px solid var(--teal);
+  outline-offset: 2px;
+}
+
+/* 인박스: 레퍼런스의 오늘의 퀘스트 헤더와 빠른 입력 카드 */
+:root[data-theme="default"] .inbox-hero {
+  min-height: 134px;
+  margin-bottom: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--ink);
+  background: var(--paper-bright);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+:root[data-theme="default"] .inbox-intro {
+  margin: 0 0 var(--space-4);
+}
+
+:root[data-theme="default"] .inbox-intro .eyebrow,
+:root[data-theme="default"] .inbox-intro > .workspace-chip {
+  display: none;
+}
+
+:root[data-theme="default"] .inbox-intro h2 {
+  display: block;
+  font-size: 23px;
+  line-height: 1.25;
+}
+
+:root[data-theme="default"] .inbox-intro h2 .pixel-icon {
+  display: none;
+}
+
+:root[data-theme="default"] .inbox-lede {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-soft);
+  font-size: var(--text-large);
+  line-height: 1.55;
+}
+
+:root[data-theme="default"] .inbox-progress {
+  gap: var(--space-2);
+  margin: 0;
+}
+
+:root[data-theme="default"] .inbox-progress > span {
+  color: var(--ink-soft);
+  font-size: var(--text-small);
+  font-weight: 700;
+}
+
+:root[data-theme="default"] .progress-track,
+:root[data-theme="default"] .xp-track,
+:root[data-theme="default"] .skill-track {
+  overflow: hidden;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--paper-deep);
+}
+
+:root[data-theme="default"] .progress-track {
+  height: 13px;
+  padding: 2px;
+}
+
+:root[data-theme="default"] .progress-track::after,
+:root[data-theme="default"] .xp-track::after,
+:root[data-theme="default"] .skill-track::after {
+  inset: 2px;
+  background-image: repeating-linear-gradient(90deg, transparent 0, transparent calc(14.2857% - 1px), var(--ink) calc(14.2857% - 1px), var(--ink) 14.2857%);
+  opacity: .22;
+}
+
+:root[data-theme="default"] .progress-track span,
+:root[data-theme="default"] .xp-track span {
+  background: var(--gold);
+}
+
+:root[data-theme="default"] .inbox-progress .progress-track span {
+  height: 100%;
+}
+
+:root[data-theme="default"] .todo-compose {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-soft);
+  background: var(--paper);
+  box-shadow: none;
+}
+
+:root[data-theme="default"] .todo-compose > .section-heading {
+  position: static;
+  width: auto;
+  height: auto;
+  margin-bottom: var(--space-2);
+  overflow: visible;
+  clip-path: none;
+}
+
+:root[data-theme="default"] .todo-compose > .section-heading .eyebrow {
+  display: block;
+}
+
+:root[data-theme="default"] .todo-form {
+  align-items: stretch;
+  gap: 0;
+}
+
+:root[data-theme="default"] .todo-form input {
+  order: 1;
+  min-height: 42px;
+  border: 1px solid var(--ink);
+  border-right: 0;
+  border-radius: var(--radius) 0 0 var(--radius);
+  background: var(--paper-bright);
+  font-size: var(--text-body);
+}
+
+:root[data-theme="default"] .todo-form .compose-add {
+  order: 2;
+  min-width: 54px;
+  min-height: 42px;
+  padding: var(--space-2);
+  border: 1px solid var(--teal);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  box-shadow: none;
+}
+
+:root[data-theme="default"] .compose-add > span:first-child {
+  display: inline;
+  font-size: 20px;
+  line-height: 1;
+}
+
+:root[data-theme="default"] .compose-add-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+:root[data-theme="default"] .compose-shortcut {
+  display: none;
+}
+
+:root[data-theme="default"] .todo-list-panel,
+:root[data-theme="default"] .project-picker {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="default"] .todo-list-panel > .section-heading .eyebrow {
+  display: block;
+}
+
+:root[data-theme="default"] .todo-list {
+  gap: var(--space-2);
+}
+
+:root[data-theme="default"] .todo-row {
+  min-height: 52px;
+  padding: var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--paper-bright);
+  box-shadow: 1px 1px 0 var(--shadow);
+}
+
+:root[data-theme="default"] .todo-row:hover {
+  border-color: var(--teal);
+}
+
+:root[data-theme="default"] .todo-row.completed {
+  border-color: var(--teal);
+  background: var(--mint);
+}
+
+:root[data-theme="default"] .todo-check {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  border: 2px solid var(--ink);
+  border-radius: var(--radius);
+  color: var(--paper-bright);
+  background: var(--paper-bright);
+}
+
+:root[data-theme="default"] .todo-check[aria-pressed="true"] {
+  border-color: var(--teal);
+  background: var(--teal);
+}
+
+:root[data-theme="default"] .todo-title {
+  color: var(--ink);
+  font-size: var(--text-body);
+}
+
+:root[data-theme="default"] .completed .todo-title {
+  color: var(--ink-soft);
+}
+
+:root[data-theme="default"] .todo-meta {
+  color: var(--muted);
+  font-size: var(--text-caption);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+:root[data-theme="default"] .project-todo-panel,
+:root[data-theme="default"] .project-next-step,
+:root[data-theme="default"] .editor-panel,
+:root[data-theme="default"] .state-panel {
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--paper-bright);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+:root[data-theme="default"] .project-todo-panel {
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+}
+
+:root[data-theme="default"] .project-todo-status {
+  border-color: var(--teal);
+  color: var(--teal);
+  background: var(--paper-bright);
+}
+
+:root[data-theme="default"] .project-todo-status.doing,
+:root[data-theme="default"] .project-todo-status.done {
+  color: var(--paper-bright);
+  background: var(--teal);
+}
+
+:root[data-theme="default"] .project-todo-status.review {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: var(--paper-bright);
+}
+
+:root[data-theme="default"] .project-next-step {
+  border-left: 4px solid var(--rust);
+}
+
+:root[data-theme="default"] .undo-bar {
+  border: 1px solid var(--teal);
+  color: var(--paper-bright);
+  background: var(--teal);
+}
+
+/* 원정·캐릭터·설정 화면도 같은 종이 보드 문법을 공유한다. */
+:root[data-theme="default"] .workspace-header {
+  margin-bottom: var(--space-3);
+}
+
+:root[data-theme="default"] .project-banner,
+:root[data-theme="default"] .character-sheet {
+  padding: var(--space-4);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--paper-bright);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+:root[data-theme="default"] .project-banner::before,
+:root[data-theme="default"] .character-sheet::before,
+:root[data-theme="default"] .editor-panel::before {
+  content: none;
+}
+
+:root[data-theme="default"] .project-token {
+  width: 34px;
+  height: 38px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--mint);
+  box-shadow: none;
+}
+
+:root[data-theme="default"] .project-token .pixel-icon {
+  width: 28px;
+  height: 28px;
+}
+
+:root[data-theme="default"] .status-pill {
+  color: var(--teal);
+  background: var(--blue);
+}
+
+:root[data-theme="default"] .status-pill.complete {
+  color: var(--ink);
+  background: var(--mint);
+}
+
+:root[data-theme="default"] .project-percent {
+  color: var(--ink);
+  font-size: var(--text-large);
+}
+
+:root[data-theme="default"] .project-banner .progress-track {
+  height: 12px;
+  background: var(--paper-deep);
+}
+
+:root[data-theme="default"] .project-banner .progress-track span,
+:root[data-theme="default"] .skill-track span {
+  background: var(--teal);
+}
+
+:root[data-theme="default"] .stage-map {
+  gap: var(--space-2);
+}
+
+:root[data-theme="default"] .stage-node {
+  width: 42px;
+  height: 42px;
+  border: 2px solid var(--border-soft);
+  border-radius: 50%;
+  color: var(--ink-soft);
+  background: var(--paper-bright);
+  box-shadow: none;
+}
+
+:root[data-theme="default"] .stage-node.selected {
+  border-color: var(--teal);
+  color: var(--paper-bright);
+  background: var(--teal);
+  box-shadow: 0 0 0 4px var(--mint);
+}
+
+:root[data-theme="default"] .stage-node.complete {
+  border-color: var(--rust);
+  color: var(--ink);
+  background: var(--gold);
+}
+
+:root[data-theme="default"] .stage-connector {
+  background: var(--border-soft);
+}
+
+:root[data-theme="default"] .stage-label.selected {
+  color: var(--teal);
+}
+
+:root[data-theme="default"] .quest-column {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--paper-bright);
+}
+
+:root[data-theme="default"] .quest-column.doing,
+:root[data-theme="default"] .quest-column.review,
+:root[data-theme="default"] .quest-column.done {
+  border-color: var(--border-soft);
+  background: var(--paper-bright);
+}
+
+:root[data-theme="default"] .column-header {
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--blue);
+}
+
+:root[data-theme="default"] .doing > .column-header {
+  background: var(--mint);
+}
+
+:root[data-theme="default"] .review > .column-header {
+  background: #f7e4ad;
+}
+
+:root[data-theme="default"] .done > .column-header {
+  background: var(--mint);
+}
+
+:root[data-theme="default"] .column-count {
+  border: 1px solid var(--border-soft);
+  border-radius: 50%;
+  color: var(--ink);
+  background: var(--paper-bright);
+}
+
+:root[data-theme="default"] .quest-card {
+  border-color: var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--paper-bright);
+  box-shadow: 1px 1px 0 var(--shadow);
+}
+
+:root[data-theme="default"] .quest-card.doing {
+  border-color: var(--teal);
+  animation: none;
+}
+
+:root[data-theme="default"] .quest-card.review {
+  border-color: var(--rust);
+}
+
+:root[data-theme="default"] .card-tags > span {
+  border: 1px solid var(--border-soft);
+  color: var(--ink-soft);
+  background: var(--blue);
+}
+
+:root[data-theme="default"] .character-home.character-sheet {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="default"] .character-summary {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+:root[data-theme="default"] .sprite,
+:root[data-theme="default"] .character-preview {
+  border-color: var(--ink);
+  border-radius: var(--radius);
+  background: var(--blue);
+}
+
+:root[data-theme="default"] .character-completion-stat,
+:root[data-theme="default"] .skill-panel,
+:root[data-theme="default"] .plugin-card,
+:root[data-theme="default"] .plugin-connection-row,
+:root[data-theme="default"] .workspace-manager,
+:root[data-theme="default"] .project-list-panel,
+:root[data-theme="default"] .project-create-form {
+  border-color: var(--ink);
+  border-radius: var(--radius);
+  background: var(--paper-bright);
+  box-shadow: 1px 1px 0 var(--shadow);
+}
+
+:root[data-theme="default"] .workspace-row,
+:root[data-theme="default"] .project-list-card,
+:root[data-theme="default"] .character-project-row {
+  border-color: var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--paper-bright);
+  box-shadow: none;
+}
+
+:root[data-theme="default"] .workspace-row.selected,
+:root[data-theme="default"] .project-list-card:hover {
+  border-color: var(--ink);
+  background: var(--gold);
+}
+
+:root[data-theme="default"] .workspace-select-icon,
+:root[data-theme="default"] .project-choice-icon {
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--mint);
+}
+
+:root[data-theme="default"] .project-list-arrow,
+:root[data-theme="default"] .character-project-row > span {
+  color: var(--teal);
+}
+
+:root[data-theme="default"] .plugin-connection-editor {
+  border-color: var(--teal);
+  border-radius: var(--radius);
+  background: var(--mint);
+}
+
+:root[data-theme="default"] .editor-panel input,
+:root[data-theme="default"] .editor-panel textarea,
+:root[data-theme="default"] .editor-panel select,
+:root[data-theme="default"] .todo-edit-form input,
+:root[data-theme="default"] .project-create-form input {
+  border-color: var(--ink);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--paper-bright);
+}
+
+:root[data-theme="default"] .settings-section,
+:root[data-theme="default"] .settings-subsection {
+  border-color: var(--border-soft);
+}
+
+:root[data-theme="default"] .setting-row {
+  border-color: var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+:root[data-theme="default"] .setting-row:hover {
+  border-color: var(--ink);
+  background: var(--gold);
+}
+
+:root[data-theme="default"] .theme-choice {
+  border-color: var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+:root[data-theme="default"] .theme-choice:hover,
+:root[data-theme="default"] .theme-choice.selected {
+  border-color: var(--ink);
+  background: var(--gold);
+}
+
+:root[data-theme="default"] .theme-choice.default .theme-swatch {
+  border-color: var(--ink);
+  background: var(--blue);
+}
+
+:root[data-theme="default"] .theme-choice.default .theme-swatch i {
+  border-color: var(--ink);
+  background: var(--paper-bright);
+}
+
+:root[data-theme="default"] .theme-choice.default .theme-swatch i:nth-child(2) {
+  background: var(--mint);
+}
+
+:root[data-theme="default"] .theme-choice.default .theme-swatch i:nth-child(3) {
+  background: var(--gold);
+}
+
+:root[data-theme="default"] .dialog-backdrop {
+  background: var(--overlay);
+}
+
+:root[data-theme="default"] .confirm-dialog {
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--paper-bright);
+  box-shadow: 4px 4px 0 var(--shadow);
+}
+
+@media (min-width: 760px) {
+  :root[data-theme="default"] .app-shell {
+    max-width: 980px;
+    margin: var(--space-6) auto;
+    height: calc(100dvh - 48px);
+  }
+
+  :root[data-theme="default"] .main-content {
+    padding: var(--space-5) var(--space-6) var(--space-6);
+  }
+}
+
+@media (max-width: 560px) {
+  :root[data-theme="default"] .project-banner {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :root[data-theme="default"] .project-stats {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 374px) {
+  :root[data-theme="default"] .brand-lockup h1 {
+    font-size: 14px;
+  }
+
+  :root[data-theme="default"] .app-navigation button {
+    font-size: var(--text-small);
+  }
+}

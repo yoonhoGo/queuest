@@ -468,3 +468,232 @@ mod tests {
         }
     }
 }
+
+fn validate_github_repository(repository: &str) -> Result<(), String> {
+    let parts: Vec<_> = repository.split('/').collect();
+    if parts.len() != 2
+        || parts.iter().any(|part| {
+            part.is_empty()
+                || *part == "."
+                || *part == ".."
+                || !part
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
+        })
+    {
+        return Err("GitHub 저장소를 owner/repository 형식으로 입력하세요.".into());
+    }
+    Ok(())
+}
+
+fn read_github_token(connection_id: &str) -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let (service, account) = super::keychain_identifiers("com.queuest.github", connection_id)?;
+        let output = Command::new("/usr/bin/security")
+            .args([
+                "find-generic-password",
+                "-s",
+                &service,
+                "-a",
+                &account,
+                "-w",
+            ])
+            .output()
+            .map_err(|_| "GitHub 인증 정보를 읽지 못했습니다.")?;
+        if !output.status.success() {
+            return Err("GitHub 연결의 인증 정보를 다시 저장하세요.".into());
+        }
+        let token = String::from_utf8(output.stdout)
+            .map_err(|_| "GitHub 인증 정보가 올바르지 않습니다.")?;
+        if token.trim().is_empty() {
+            return Err("GitHub 인증 정보가 비어 있습니다.".into());
+        }
+        Ok(token.trim().to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = connection_id;
+        Err("GitHub 인증은 macOS Keychain에서만 지원합니다.".into())
+    }
+}
+
+/// Read saved-connection work without exposing the token or provider error body.
+#[tauri::command]
+pub async fn github_connection_work(
+    connection_id: String,
+    repository: String,
+    page: u32,
+    reviews: bool,
+) -> Result<Value, String> {
+    validate_github_repository(&repository)?;
+    super::keychain_identifiers("com.queuest.github", &connection_id)?;
+    if !(1..=100).contains(&page) {
+        return Err("GitHub 페이지가 올바르지 않습니다.".into());
+    }
+    let token = tauri::async_runtime::spawn_blocking(move || read_github_token(&connection_id))
+        .await
+        .map_err(|_| "GitHub 인증 정보를 읽지 못했습니다.")??;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "GitHub 연결을 준비하지 못했습니다.")?;
+    let request = if reviews {
+        let user = github_json(client.get("https://api.github.com/user"), &token).await?;
+        let login = user["login"]
+            .as_str()
+            .filter(|value| {
+                !value.is_empty()
+                    && value
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+            })
+            .ok_or("GitHub 계정을 확인하지 못했습니다.")?;
+        client.get("https://api.github.com/search/issues").query(&[
+            (
+                "q",
+                format!("is:pr is:open review-requested:{login} repo:{repository}"),
+            ),
+            ("per_page", "100".to_string()),
+            ("page", page.to_string()),
+        ])
+    } else {
+        client
+            .get(format!("https://api.github.com/repos/{repository}/issues"))
+            .query(&[
+                ("state", "all".to_string()),
+                ("per_page", "100".to_string()),
+                ("page", page.to_string()),
+            ])
+    };
+    let body = github_json(request, &token).await?;
+    map_github_work(body, &repository, page, reviews)
+}
+
+fn map_github_work(
+    body: Value,
+    repository: &str,
+    page: u32,
+    reviews: bool,
+) -> Result<Value, String> {
+    if reviews && body["incomplete_results"] == true {
+        return Err("GitHub 검색이 완료되지 않았습니다. 다시 시도하세요.".into());
+    }
+    let rows = if reviews {
+        body["items"].as_array()
+    } else {
+        body.as_array()
+    }
+    .ok_or("GitHub 응답 형식이 올바르지 않습니다.")?;
+    let mut items = Vec::new();
+    for row in rows {
+        if !reviews && row.get("pull_request").is_some() {
+            continue;
+        }
+        let number = row["number"]
+            .as_u64()
+            .ok_or("GitHub 이슈 번호가 없습니다.")?;
+        let title = row["title"]
+            .as_str()
+            .ok_or("GitHub 이슈 제목이 없습니다.")?;
+        let kind = if reviews { "pull" } else { "issues" };
+        let url = format!("https://github.com/{repository}/{kind}/{number}");
+        let title = if reviews {
+            format!("PR 리뷰 · {title}")
+        } else {
+            title.to_string()
+        };
+        items.push(
+            json!({"title": title, "body": row["body"].as_str().unwrap_or(""),
+            "status": if row["state"] == "closed" { "review" } else { "todo" },
+            "assignee": "human", "skills": [], "blocked": false,
+            "externalRef": format!("github:{repository}#{number}"), "sourceUrl": url}),
+        );
+    }
+    Ok(
+        json!({"items": items, "nextCursor": if rows.len() == 100 { Some((page + 1).to_string()) } else { None }}),
+    )
+}
+
+#[cfg(test)]
+mod github_sync_tests {
+    use super::{map_github_work, validate_github_repository};
+    use serde_json::json;
+    #[test]
+    fn github_work_preserves_review_gate_and_distinguishes_pull_requests() {
+        let result = map_github_work(
+            json!([
+                {"number": 1, "title": "closed issue", "state": "closed"},
+                {"number": 2, "title": "pull request", "pull_request": {}}
+            ]),
+            "owner/repo",
+            1,
+            false,
+        )
+        .unwrap();
+        assert_eq!(result["items"].as_array().unwrap().len(), 1);
+        assert_eq!(result["items"][0]["status"], "review");
+        assert_eq!(result["items"][0]["externalRef"], "github:owner/repo#1");
+        let review = map_github_work(
+            json!({"items": [{"number": 2, "title": "fix", "state": "open"}]}),
+            "owner/repo",
+            1,
+            true,
+        )
+        .unwrap();
+        assert_eq!(review["items"][0]["status"], "todo");
+        assert_eq!(
+            review["items"][0]["sourceUrl"],
+            "https://github.com/owner/repo/pull/2"
+        );
+        assert!(map_github_work(
+            json!({"incomplete_results": true, "items": []}),
+            "owner/repo",
+            1,
+            true
+        )
+        .is_err());
+    }
+    #[test]
+    fn restricts_repository_before_keychain_access() {
+        for invalid in [
+            "",
+            "a",
+            "a/b/c",
+            "../repo",
+            "a/..",
+            "a/b?token=x",
+            "a/b#x",
+            "https://evil.example",
+        ] {
+            assert!(validate_github_repository(invalid).is_err(), "{invalid}");
+        }
+        assert!(validate_github_repository("owner/repo-name.v2").is_ok());
+    }
+}
+
+async fn github_json(request: reqwest::RequestBuilder, token: &str) -> Result<Value, String> {
+    let mut response = request
+        .bearer_auth(token)
+        .header("User-Agent", "Queuest Desktop/0.1.0")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|_| "GitHub 연결에 실패했습니다.")?;
+    if !response.status().is_success() {
+        return Err("GitHub 인증, 저장소 권한 또는 요청 한도를 확인하세요.".into());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "GitHub 응답을 읽지 못했습니다.")?
+    {
+        if bytes.len() + chunk.len() > 8 * 1024 * 1024 {
+            return Err("GitHub 응답이 너무 큽니다.".into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&bytes).map_err(|_| "GitHub 응답 형식이 올바르지 않습니다.".into())
+}
