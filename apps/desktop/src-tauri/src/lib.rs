@@ -19,6 +19,8 @@ mod cli;
 mod integrations;
 mod settings;
 
+#[cfg(target_os = "macos")]
+use objc2_foundation::NSProcessInfo;
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_os = "macos"))]
 use tauri::PhysicalPosition;
@@ -92,6 +94,24 @@ struct ToolInventory {
 const MAX_INSTALLED_APPS: usize = 500;
 
 const KEYCHAIN_NAMESPACE: &str = "com.yoonhogo.queuest.credentials";
+const MACOS_NATIVE_TRAY_MENU_MAX_MAJOR: isize = 26;
+
+fn use_native_tray_menu_for_major(major_version: isize) -> bool {
+    major_version <= MACOS_NATIVE_TRAY_MENU_MAX_MAJOR
+}
+
+#[cfg(target_os = "macos")]
+fn use_native_tray_menu() -> bool {
+    let major_version = NSProcessInfo::processInfo()
+        .operatingSystemVersion()
+        .majorVersion;
+    use_native_tray_menu_for_major(major_version)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn use_native_tray_menu() -> bool {
+    true
+}
 
 pub fn run_cli<I>(args: I) -> i32
 where
@@ -852,39 +872,52 @@ pub fn run() {
                 }
             }
 
-            let toggle = MenuItemBuilder::with_id("toggle", "Queuest 열기/닫기").build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "종료").build(app)?;
-            let menu = MenuBuilder::new(app).items(&[&toggle, &quit]).build()?;
-
             let tray_icon = if cfg!(target_os = "macos") {
                 tauri::include_image!("./icons/trayTemplate@2x.png")
             } else {
                 app.default_window_icon().unwrap().clone()
             };
 
-            TrayIconBuilder::with_id("queuest")
+            let use_native_tray_menu = use_native_tray_menu();
+            let open_popover_on_right_click = !use_native_tray_menu;
+            let tray_builder = TrayIconBuilder::with_id("queuest")
                 .icon(tray_icon)
                 .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("Queuest")
-                .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "toggle" => toggle_main_window(app, None),
                     "quit" => app.exit(0),
                     _ => {}
                 })
-                .on_tray_icon_event(|tray, event| {
+                .on_tray_icon_event(move |tray, event| {
                     if let TrayIconEvent::Click {
                         rect,
-                        button: MouseButton::Left,
+                        button,
                         button_state: MouseButtonState::Up,
                         ..
                     } = event
                     {
-                        toggle_main_window(tray.app_handle(), Some(rect));
+                        let is_popover_click = button == MouseButton::Left
+                            || (open_popover_on_right_click && button == MouseButton::Right);
+                        if is_popover_click {
+                            toggle_main_window(tray.app_handle(), Some(rect));
+                        }
                     }
-                })
-                .build(app)?;
+                });
+
+            if use_native_tray_menu {
+                let toggle = MenuItemBuilder::with_id("toggle", "Queuest 열기/닫기").build(app)?;
+                let quit = MenuItemBuilder::with_id("quit", "종료").build(app)?;
+                let menu = MenuBuilder::new(app).items(&[&toggle, &quit]).build()?;
+                tray_builder.menu(&menu).build(app)?;
+            } else {
+                // macOS 27 no longer routes status-item clicks reliably when an
+                // NSMenu is attached. Keep the status item event-only and use
+                // the Queuest popover for both mouse buttons until tray-icon
+                // provides an upstream fix for https://github.com/tauri-apps/tray-icon/issues/355.
+                tray_builder.build(app)?;
+            }
 
             if cfg!(debug_assertions) {
                 toggle_main_window(app.handle(), None);
@@ -914,4 +947,20 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tray_compatibility_tests {
+    use super::use_native_tray_menu_for_major;
+
+    #[test]
+    fn native_menu_is_kept_through_macos_26() {
+        assert!(use_native_tray_menu_for_major(26));
+    }
+
+    #[test]
+    fn native_menu_is_disabled_for_macos_27_and_newer() {
+        assert!(!use_native_tray_menu_for_major(27));
+        assert!(!use_native_tray_menu_for_major(28));
+    }
 }
