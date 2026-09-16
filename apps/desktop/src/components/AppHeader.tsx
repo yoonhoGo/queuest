@@ -1,4 +1,5 @@
 import { PixelIcon } from "./PixelIcon";
+import { Button, IconButton } from "./ui";
 
 interface AppHeaderProps {
   readonly todoCount: number;
@@ -34,14 +35,14 @@ export function AppHeader({
           <PixelIcon name="bell" />
           {todoCount > 0 && <span>{todoCount}</span>}
         </span>
-        <button className={`icon-button pin-button ${pinned ? "active" : ""}`} type="button"
-          aria-label={pinned ? "팝오버 고정 해제" : "팝오버 고정"} aria-pressed={pinned}
+        <IconButton className={`pin-button ${pinned ? "active" : ""}`}
+          label={pinned ? "팝오버 고정 해제" : "팝오버 고정"} aria-pressed={pinned}
           disabled={pinPending}
           title={pinned ? "고정 해제: 드래그 이동 허용, 다른 앱을 클릭하면 숨기기" : "드래그 이동을 잠그고 항상 위에 표시"}
-          onClick={onTogglePinned}><PixelIcon name="pin" /></button>
-        {onOpenAppSettings && <button className="icon-button theme-button" type="button" aria-label="앱 설정" title="앱 설정" onClick={onOpenAppSettings}><PixelIcon name="settings" /></button>}
-        <button className="topbar-project-button" type="button" onClick={onOpenProject}>{projectLabel}</button>
-        {onOpenSettings && <button className="icon-button" type="button" aria-label="원정 설정" onClick={onOpenSettings}><PixelIcon name="settings" /></button>}
+          onClick={onTogglePinned}><PixelIcon name="pin" /></IconButton>
+        {onOpenAppSettings && <IconButton className="theme-button" label="앱 설정" title="앱 설정" onClick={onOpenAppSettings}><PixelIcon name="settings" /></IconButton>}
+        <Button variant="secondary" size="small" className="topbar-project-button" onClick={onOpenProject}>{projectLabel}</Button>
+        {onOpenSettings && <IconButton label="원정 설정" onClick={onOpenSettings}><PixelIcon name="settings" /></IconButton>}
       </div>
     </header>
   );

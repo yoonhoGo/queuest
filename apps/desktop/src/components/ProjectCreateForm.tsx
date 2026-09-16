@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Workspace } from "@queuest/domain";
 import type { NewProjectInput } from "../data/project";
 import { DirectoryField } from "./DirectoryField";
+import { Button } from "./ui";
 
 interface ProjectCreateFormProps {
   workspace: Workspace;
@@ -112,10 +113,10 @@ export function ProjectCreateForm({ workspace, initialTaskTitle, submitting, onC
       {cloning && <p className="field-hint" role="status">저장소를 clone하고 있습니다. 완료되면 원정을 엽니다.</p>}
       {validationError && <p className="validation-note" role="alert">{validationError}</p>}
       <div className="form-actions">
-        <button className="primary-button" type="submit" disabled={busy}>
+        <Button variant="primary" type="submit" disabled={busy}>
           {cloning ? "Clone 중…" : submitting ? "저장 중…" : source === "clone" ? "Clone 후 원정 열기" : "원정 만들기"}
-        </button>
-        <button className="secondary-button" type="button" onClick={onCancel} disabled={busy}>취소</button>
+        </Button>
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>취소</Button>
       </div>
     </form>
   );

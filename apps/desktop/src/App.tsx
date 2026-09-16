@@ -96,11 +96,13 @@ import { CharacterCompletionStats } from "./components/CharacterCompletionStats"
 import { PixelIcon } from "./components/PixelIcon";
 import { ProjectCreateForm } from "./components/ProjectCreateForm";
 import { DirectoryField } from "./components/DirectoryField";
+import { Button, NavigationTabs, PanelHeading, ProgressBar, SectionHeading, StatusBadge } from "./components/ui";
 import "./App.css";
 import "./styles/retro-shell.css";
 import "./styles/retro-content.css";
 import "./styles/default-theme.css";
 import "./styles/quest-flow.css";
+import "./styles/ui.css";
 
 const STATUS_COLUMNS: Array<{ status: TaskStatus; label: string; hint: string }> = [
   { status: "todo", label: "대기", hint: "아직 시작하지 않은 퀘스트" },
@@ -641,7 +643,7 @@ function App() {
       <AppNavigation active={view} onNavigate={(next) => next === "project" ? openProjectPicker() : setView(next)} />
       <main className="main-content" ref={contentRef}>
         {view === "character" ? <CharacterHome /> : view === "plugins" ? <>
-          <section className="settings-overview"><h2>설정</h2><p>화면 테마, 앱 시작 동작과 외부 연결을 관리합니다.</p><button type="button" className="secondary-button" onClick={() => setShowAppSettings(true)}>테마와 앱 동작</button></section>
+          <section className="settings-overview"><h2>설정</h2><p>화면 테마, 앱 시작 동작과 외부 연결을 관리합니다.</p><Button variant="secondary" onClick={() => setShowAppSettings(true)}>테마와 앱 동작</Button></section>
           <PluginsPanel />
         </> : view === "project-picker" ? (
           <ProjectPicker
@@ -731,20 +733,18 @@ function AppNavigation({ active, onNavigate }: {
   active: AppView;
   onNavigate: (view: "inbox" | "project" | "character" | "plugins") => void;
 }) {
-  return (
-    <nav className="app-navigation" aria-label="주요 화면">
-      {([['inbox', '퀘스트', 'clipboard'], ['project', '원정', 'flag'], ['character', '캐릭터', 'person'], ['plugins', '설정', 'settings']] as const).map(([id, label, icon]) => (
-        <button type="button" key={id}
-          aria-current={active === id || (id === "project" && active === "project-picker") ? "page" : undefined}
-          onClick={() => onNavigate(id)}>
-          <PixelIcon name={icon} /><span>{label}</span>
-          <svg className="nav-tip" viewBox="0 0 100 45" aria-hidden="true" preserveAspectRatio="none">
-            <path d="M11 .5H89C94.8 .5 99.5 5.2 99.5 11V25C99.5 30.8 94.8 35.5 89 35.5H57C55 35.5 54.5 36.4 53.5 38L51 42C50.6 43 50.3 43.5 50 43.5C49.7 43.5 49.4 43 49 42L46.5 38C45.5 36.4 45 35.5 43 35.5H11C5.2 35.5 .5 30.8 .5 25V11C.5 5.2 5.2 .5 11 .5Z" />
-          </svg>
-        </button>
-      ))}
-    </nav>
-  );
+  const value = active === "project-picker" ? "project" : active;
+  return <NavigationTabs
+    ariaLabel="주요 화면"
+    items={[
+      { id: "inbox", label: "퀘스트", icon: "clipboard" },
+      { id: "project", label: "원정", icon: "flag" },
+      { id: "character", label: "캐릭터", icon: "person" },
+      { id: "plugins", label: "설정", icon: "settings" },
+    ] as const}
+    value={value}
+    onChange={onNavigate}
+  />;
 }
 
 function AppSettingsDialog({
@@ -845,20 +845,21 @@ function AppSettingsDialog({
           </div>
           <div className="settings-update-status">
             <p className="field-hint" role="status" aria-live="polite">{settingsReady ? updateStatus : "앱 설정을 불러오는 중…"}</p>
-            <button
-              className="small-button"
+            <Button
+              variant="secondary"
+              size="small"
               type="button"
               disabled={!settingsReady || !settings.autoUpdate || saving}
               onClick={() => void onCheckForUpdates()}
             >
               지금 확인
-            </button>
+            </Button>
           </div>
         </section>
 
         {settingsError && <p className="action-error" role="alert">{settingsError}</p>}
         <div className="form-actions">
-          <button className="secondary-button" type="button" onClick={onClose} disabled={saving}>닫기</button>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>닫기</Button>
         </div>
       </section>
     </QuestDialog>
@@ -906,13 +907,14 @@ function CharacterHome() {
 
   return (
     <section className="character-home character-sheet" aria-labelledby="profile-title">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">GLOBAL CHARACTER</p>
-          <h2 id="profile-title" tabIndex={-1}><PixelIcon name="star" />나의 캐릭터</h2>
-        </div>
-        <span className="sheet-rule">전체 원정</span>
-      </div>
+      <SectionHeading
+        eyebrow="GLOBAL CHARACTER"
+        title="나의 캐릭터"
+        titleId="profile-title"
+        icon="star"
+        note={<span className="sheet-rule">전체 원정</span>}
+        className="character-heading"
+      />
       <p className="page-description">모든 원정에서 쌓은 경험으로 함께 성장해요.</p>
       {error && (
         <div className="action-error" role="alert">
@@ -946,9 +948,9 @@ function CharacterHome() {
             />
           ) : (
             <div className="character-home-actions">
-              <button className="primary-button" type="button" onClick={() => setEditing(true)}>
+              <Button variant="primary" onClick={() => setEditing(true)}>
                 캐릭터 꾸미기
-              </button>
+              </Button>
             </div>
           )}
 
@@ -968,25 +970,18 @@ function CharacterHome() {
                 <span>XP {progress.experience}</span>
                 <span>다음 레벨까지 {progress.experienceToNextLevel}</span>
               </div>
-              <div
+              <ProgressBar
                 className="xp-track"
-                role="progressbar"
-                aria-label={`경험치 ${progress.experience}`}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={progress.levelProgress}
-              >
-                <span aria-hidden="true" style={{ width: `${progress.levelProgress}%` }} />
-              </div>
+                value={progress.levelProgress}
+                label={`경험치 ${progress.experience}`}
+                tone="gold"
+              />
             </div>
           </div>
 
           <div className="sheet-grid">
             <div className="skill-panel">
-              <div className="panel-heading">
-                <h3><PixelIcon name="book" />스킬</h3>
-                <span>전체 완료 태스크 기준</span>
-              </div>
+              <PanelHeading icon="book" title="스킬" note="전체 완료 태스크 기준" />
               <div className="skill-list">
                 {progress.skills.length > 0 ? progress.skills.map((skill) => (
                   <div className={`skill-row ${skill.emphasized ? "emphasized" : ""}`} key={skill.name}>
@@ -1018,10 +1013,7 @@ function CharacterHome() {
           <InventoryPanel />
 
           <section className="character-projects" aria-labelledby="character-projects-title">
-            <div className="panel-heading">
-              <h3 id="character-projects-title">원정 기록</h3>
-              <span>{progress.projects.length}개</span>
-            </div>
+            <PanelHeading title="원정 기록" titleId="character-projects-title" note={`${progress.projects.length}개`} />
             <div className="character-project-list">
               {progress.projects.length > 0 ? progress.projects.map((item) => (
                 <div className="character-project-row" key={item.project.id}>
@@ -3528,7 +3520,7 @@ function TaskCard({
       onDragEnd={onDragEnd}
     >
       <div className="card-meta">
-        <span className="card-status">{STATUS_COLUMNS.find((column) => column.status === task.status)?.label}</span>
+        <StatusBadge status={task.status} className="card-status">{STATUS_COLUMNS.find((column) => column.status === task.status)?.label}</StatusBadge>
         <span className="card-assignee">{task.assignee === "ai" ? "AI" : "나"}</span>
         {task.comments && task.comments.length > 0 && (
           <span className="card-comments">댓글 {task.comments.length}</span>
@@ -3545,18 +3537,18 @@ function TaskCard({
       </div>
       <div className="card-actions">
         {task.status !== "todo" && (
-          <button className="advance-button retreat-button" type="button" onClick={() => void onRetreat()}>
+          <Button variant="secondary" size="small" className="advance-button retreat-button" onClick={() => void onRetreat()}>
             이전: {previousLabel}
-          </button>
+          </Button>
         )}
         {task.status !== "done" && (
-          <button className="advance-button" type="button" onClick={() => void onAdvance()}>
+          <Button variant="primary" size="small" className="advance-button" onClick={() => void onAdvance()}>
             {nextStatus === "done" ? "완료 확인" : `다음: ${nextLabel}`}
-          </button>
+          </Button>
         )}
-        <button className="row-action" type="button" onClick={onEdit}>편집</button>
-        {onOpenSource && <button className="row-action" type="button" onClick={onOpenSource}>원본</button>}
-        <button className="row-action danger" type="button" onClick={onDelete}>삭제</button>
+        <Button variant="quiet" size="small" onClick={onEdit}>편집</Button>
+        {onOpenSource && <Button variant="quiet" size="small" onClick={onOpenSource}>원본</Button>}
+        <Button variant="danger" size="small" onClick={onDelete}>삭제</Button>
       </div>
     </article>
   );

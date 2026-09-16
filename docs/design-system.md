@@ -36,9 +36,27 @@
 | 픽셀 아이콘 | [PixelIcon.tsx](../apps/desktop/src/components/PixelIcon.tsx) |
 | 캐릭터 외형·직업·상태별 픽셀 렌더링 | [CharacterSprite.tsx](../apps/desktop/src/components/CharacterSprite.tsx) |
 | 완료 퀘스트·완료 스테이지 카드 | [CharacterCompletionStats.tsx](../apps/desktop/src/components/CharacterCompletionStats.tsx) |
+| 공용 UI primitive 계약 | [components/ui/index.tsx](../apps/desktop/src/components/ui/index.tsx) |
+| 공용 UI primitive 스타일 | [ui.css](../apps/desktop/src/styles/ui.css) |
 | 기존 레이아웃·동작 연결 | [App.tsx](../apps/desktop/src/App.tsx), [App.css](../apps/desktop/src/App.css) |
 
 새 기능 전용 색상·버튼 체계를 만들지 않는다. `App.css`에 남은 과거 스타일보다 위의 레트로 스타일 계층을 기준으로 삼는다. 재사용되는 구조는 작은 컴포넌트로 만들고 같은 CSS 규칙으로 상태를 표현한다.
+
+### 공용 컴포넌트 계약
+
+화면 컴포넌트는 `components/ui/index.tsx`의 primitive를 조합하고, 시각값은 `styles/ui.css`에서 기존 토큰으로 해석한다. primitive는 기존 클래스와 함께 렌더링해 레트로·기본·별빛 모험 테마의 의도된 오버라이드를 보존한다.
+
+| 컴포넌트 | 역할 | 주요 계약 |
+|---|---|---|
+| `Button`, `IconButton` | 주요·보조·조밀한·위험 동작 | `variant`, `size`, `loading`; 아이콘 버튼은 `label` 필수 |
+| `NavigationTabs` | 퀘스트·원정·캐릭터·설정 이동 | `items`, `value`, `onChange`; 현재 탭은 `aria-current` |
+| `StatusBadge` | 대기·진행 중·검토·완료·미수락 표시 | `status`와 상태명 텍스트를 함께 전달 |
+| `ProgressBar` | 경험치·스킬·원정 진행률 | 실제 `value`/`max`, `label`, `role="progressbar"` |
+| `SectionHeading`, `PanelHeading`, `Panel`, `Field` | 제목·표면·라벨이 있는 입력 구조 | 내용과 접근성 관계를 props로 명시 |
+| `CheckRow`, `Dialog` | 검토 조건과 포커스가 복원되는 네이티브 대화상자 | 체크 상태·busy 상태·닫기 규칙을 호출자가 소유 |
+| `StatCard` | 완료 통계처럼 반복되는 아이콘·라벨·값 카드 | 실제 값을 받고 빈 값에서도 구조 유지 |
+
+새 공용 패턴은 이 표와 primitive 구현을 함께 갱신한다. 도메인 전이·저장·외부 연결은 primitive에 넣지 않고 화면 또는 도메인 계층에서 주입한다.
 
 ### 테마
 

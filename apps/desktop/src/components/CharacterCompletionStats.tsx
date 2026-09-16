@@ -1,4 +1,4 @@
-import { PixelIcon } from "./PixelIcon";
+import { StatCard } from "./ui";
 
 interface CharacterCompletionStatsProps {
   readonly completedTaskCount: number;
@@ -17,13 +17,7 @@ export function CharacterCompletionStats({
   return (
     <div className="character-completion-stats">
       {stats.map(({ icon, label, count }) => (
-        <div className="character-completion-stat" key={icon}>
-          <PixelIcon name={icon} />
-          <div>
-            <p>{label}</p>
-            <strong>{count}</strong>
-          </div>
-        </div>
+        <StatCard icon={icon} label={label} value={count} key={icon} />
       ))}
     </div>
   );

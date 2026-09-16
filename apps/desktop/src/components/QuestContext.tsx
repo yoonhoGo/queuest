@@ -1,6 +1,7 @@
 import type { QuestContext, Task } from "@queuest/domain";
 import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { Button } from "./ui";
 import "./QuestContext.css";
 
 const roles = { main: "메인", side: "서브" };
@@ -37,9 +38,9 @@ export function QuestContextEditor({ value, onChange, disabled }: {
         {Object.entries(kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
       </select></label>
       <label>원본 URL<input type="url" required pattern="https?://.*" value={link.url} onChange={e => update({ links: value.links.map((item, i) => i === index ? { ...item, url: e.target.value } : item) })} /></label>
-      <button type="button" className="row-action" onClick={() => update({ links: value.links.filter((_, i) => i !== index) })}>연결 제거</button>
+      <Button variant="quiet" onClick={() => update({ links: value.links.filter((_, i) => i !== index) })}>연결 제거</Button>
     </div>)}
-    <button type="button" className="row-action" onClick={() => update({ links: [...value.links, { kind: "issue", url: "" }] })}>외부 항목 연결</button>
+    <Button variant="quiet" onClick={() => update({ links: [...value.links, { kind: "issue", url: "" }] })}>외부 항목 연결</Button>
   </fieldset>;
 }
 
@@ -58,10 +59,10 @@ export function QuestContextSummary({ task }: { task: Task }) {
     {quest.successCriteria && <p>성공 조건: {quest.successCriteria}</p>}
     {quest.scheduledAt && <p>수행 예정: <time dateTime={quest.scheduledAt}>{quest.scheduledAt.replace("T", " ")}</time></p>}
     {quest.links.filter(link => /^https?:\/\//i.test(link.url)).map((link, index) =>
-      <button type="button" className="row-action" key={index} onClick={() => {
+      <Button variant="quiet" type="button" key={index} onClick={() => {
         setLinkError(false);
         void openUrl(link.url).catch(() => setLinkError(true));
-      }}>{kinds[link.kind]} ↗</button>)}
+      }}>{kinds[link.kind]} ↗</Button>)}
     {linkError && <p role="alert">원본 링크를 열지 못했습니다. 다시 시도하세요.</p>}
   </div>;
 }

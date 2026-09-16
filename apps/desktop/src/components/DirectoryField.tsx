@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Button } from "./ui";
 
 interface DirectoryFieldProps {
   label: string;
@@ -33,10 +34,10 @@ export function DirectoryField({ label, value, disabled, onChange, onBusyChange 
     <div className="directory-field">
       <label htmlFor={id}>{label}</label>
       <div className="form-actions">
-        <button type="button" className="secondary-button" disabled={disabled || choosing} onClick={() => void chooseDirectory()}>
+        <Button variant="secondary" disabled={disabled || choosing} onClick={() => void chooseDirectory()}>
           {choosing ? "폴더 선택 중…" : "폴더 선택…"}
-        </button>
-        {value && <button type="button" className="row-action" disabled={disabled || choosing} onClick={() => onChange("")}>연결 해제</button>}
+        </Button>
+        {value && <Button variant="quiet" disabled={disabled || choosing} onClick={() => onChange("")}>연결 해제</Button>}
       </div>
       <input id={id} type="text" value={value} disabled={disabled || choosing}
         placeholder="폴더를 선택하거나 경로를 입력하세요" onChange={(event) => onChange(event.target.value)} />

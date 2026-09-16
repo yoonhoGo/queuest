@@ -1,0 +1,298 @@
+/* Queuest component primitives. Product surfaces still inherit the selected theme tokens. */
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--paper-bright);
+  font: var(--text-control)/1.4 var(--font-body);
+  text-align: center;
+  white-space: normal;
+  transition: transform .14s ease, background-color .14s ease, border-color .14s ease;
+}
+
+.ui-button-primary {
+  border: var(--border);
+  border-color: var(--teal);
+  color: var(--paper-bright);
+  background: var(--teal);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+.ui-button-secondary {
+  border: var(--border);
+  background: var(--paper-bright);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+.ui-button-quiet {
+  min-height: 34px;
+  padding: var(--space-1) var(--space-2);
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ui-button-danger {
+  border-color: var(--error);
+  color: var(--error);
+  background: var(--paper-bright);
+}
+
+.ui-button-small {
+  min-height: 34px;
+  padding: var(--space-1) var(--space-2);
+}
+
+.ui-button-secondary.ui-button-small {
+  border: 1px solid var(--border-soft);
+  box-shadow: none;
+}
+
+.ui-button:not(:disabled):hover {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--gold);
+}
+
+.ui-button-danger:not(:disabled):hover {
+  border-color: var(--error);
+  color: var(--paper-bright);
+  background: var(--error);
+}
+
+:root:not([data-theme="default"]) .ui-button-primary {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--mint);
+}
+
+:root[data-theme="fantasy"] .ui-button-primary {
+  border-color: var(--border-soft);
+  color: var(--fantasy-canvas);
+  background: linear-gradient(135deg, var(--fantasy-aqua), var(--fantasy-aqua-deep));
+  box-shadow: none;
+}
+
+:root[data-theme="fantasy"] .ui-button-secondary,
+:root[data-theme="fantasy"] .ui-button-quiet {
+  border-color: var(--border-soft);
+  color: var(--ink);
+  background: var(--fantasy-panel-raised);
+  box-shadow: none;
+}
+
+:root[data-theme="fantasy"] .ui-button-quiet.ui-icon-button {
+  border-color: transparent;
+  background: transparent;
+}
+
+:root[data-theme="fantasy"] .ui-button:not(:disabled):hover {
+  border-color: var(--gold);
+  color: var(--fantasy-gold-soft);
+  background: var(--fantasy-gold-wash);
+}
+
+:root[data-theme="default"] .ui-button-quiet {
+  border-color: transparent;
+  background: transparent;
+}
+
+.ui-button:not(:disabled):active {
+  transform: translate(1px, 1px);
+}
+
+.ui-button:disabled {
+  cursor: not-allowed;
+  opacity: .62;
+}
+
+.ui-button[aria-busy="true"] {
+  cursor: wait;
+}
+
+/* Contextual quiet actions keep the contrast of their surface. */
+.ui-button.back-link {
+  min-height: 34px;
+  padding: 2px 0;
+  border-color: transparent;
+  color: var(--teal);
+  background: transparent;
+  font-size: var(--text-small);
+}
+
+.ui-button.back-link:not(:disabled):hover {
+  border-color: transparent;
+  color: var(--error);
+  background: transparent;
+  text-decoration: underline;
+}
+
+.undo-bar .ui-button-quiet {
+  min-height: 25px;
+  padding: 2px 5px;
+  border-color: var(--gold);
+  color: var(--gold);
+  background: transparent;
+  font-size: var(--text-small);
+}
+
+.undo-bar .ui-button-quiet:not(:disabled):hover {
+  border-color: var(--gold);
+  color: var(--ink);
+  background: var(--gold);
+}
+
+.ui-icon-button {
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: var(--space-1);
+}
+
+.ui-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-soft);
+  color: var(--ink);
+  background: var(--paper-deep);
+  font-size: var(--text-small);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.ui-status-todo { background: var(--paper-deep); }
+.ui-status-doing { background: var(--rust); }
+.ui-status-review { background: var(--gold); }
+.ui-status-done { background: var(--mint); }
+.ui-status-pending { border-style: dashed; background: var(--paper-bright); }
+
+.ui-progress {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ui-progress:not(.progress-track):not(.xp-track):not(.skill-track) {
+  height: 10px;
+  padding: 1px;
+  border: 1px solid var(--ink);
+  background: var(--paper-deep);
+}
+
+.ui-progress::after {
+  position: absolute;
+  inset: 1px;
+  z-index: 2;
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0,
+    transparent calc(14.2857% - 1px),
+    color-mix(in srgb, var(--ink) 22%, transparent) calc(14.2857% - 1px),
+    color-mix(in srgb, var(--ink) 22%, transparent) 14.2857%
+  );
+  content: "";
+  pointer-events: none;
+}
+
+.ui-progress > span {
+  position: relative;
+  z-index: 1;
+  display: block;
+  height: 100%;
+  background: var(--gold);
+}
+
+.ui-progress-mint > span { background: var(--mint); }
+.ui-progress-teal > span { background: var(--teal); }
+
+.ui-panel {
+  min-width: 0;
+  padding: var(--space-4);
+  border: var(--border);
+  background: var(--paper-bright);
+  box-shadow: 3px 3px 0 var(--shadow);
+}
+
+.ui-section-heading,
+.ui-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ui-section-heading > div,
+.ui-panel-heading > div {
+  min-width: 0;
+}
+
+.ui-section-heading h2,
+.ui-panel-heading h3 {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.ui-section-heading .section-note,
+.ui-panel-heading > span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.ui-field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ui-field > label {
+  font-size: var(--text-control);
+  font-weight: 600;
+}
+
+.ui-field > input,
+.ui-field > textarea,
+.ui-field > select {
+  width: 100%;
+  min-width: 0;
+}
+
+.ui-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ui-check-row input {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  accent-color: var(--teal);
+}
+
+.ui-dialog {
+  max-width: none;
+}
+
+.ui-stat-card {
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-button {
+    transition: none;
+  }
+}

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-type PixelIconName = "star" | "clipboard" | "flag" | "person" | "puzzle" | "bell" | "pin" | "settings" | "palette" | "book" | "sprout" | "more";
+export type PixelIconName = "star" | "clipboard" | "flag" | "person" | "puzzle" | "bell" | "pin" | "settings" | "palette" | "book" | "sprout" | "more";
 
 const artwork: Record<PixelIconName, ReactNode> = {
   star: <path d="M10 1h4v6h3v3h6v4h-6v3h-3v6h-4v-6H7v-3H1v-4h6V7h3Z" fill="var(--gold)" />,

@@ -1,4 +1,5 @@
 import type { Task } from "@queuest/domain";
+import { Button } from "./ui";
 
 export function PendingQuestPanel({ tasks, submitting, onAccept, onEdit, onOpenSource, onDelete }: {
   tasks: Task[]; submitting: boolean; onAccept: (task: Task) => Promise<boolean>;
@@ -11,10 +12,10 @@ export function PendingQuestPanel({ tasks, submitting, onAccept, onEdit, onOpenS
     {pending.map(task => <article className="github-issue-row pending-quest-row" key={task.id}>
       <div className="github-issue-copy"><strong>{task.title}</strong><small>{task.body}</small></div>
       <div className="card-actions">
-        <button type="button" className="small-button" disabled={submitting} onClick={() => void onAccept(task)}>수락</button>
-        <button type="button" className="row-action" disabled={submitting} onClick={() => onEdit(task)}>편집</button>
-        <button type="button" className="row-action" onClick={() => onOpenSource(task)}>원본</button>
-        <button type="button" className="row-action danger" disabled={submitting} onClick={() => onDelete(task)}>삭제</button>
+        <Button variant="secondary" size="small" disabled={submitting} onClick={() => void onAccept(task)}>수락</Button>
+        <Button variant="quiet" size="small" disabled={submitting} onClick={() => onEdit(task)}>편집</Button>
+        <Button variant="quiet" size="small" onClick={() => onOpenSource(task)}>원본</Button>
+        <Button variant="danger" size="small" disabled={submitting} onClick={() => onDelete(task)}>삭제</Button>
       </div>
     </article>)}
   </section>;
