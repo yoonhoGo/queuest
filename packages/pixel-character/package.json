@@ -1,0 +1,29 @@
+{
+  "name": "@queuest/pixel-character",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "THIRD_PARTY.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "test": "node --experimental-strip-types --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@types/three": "0.186.0",
+    "three": "0.186.0"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "@types/node": "24.0.0"
+  }
+}

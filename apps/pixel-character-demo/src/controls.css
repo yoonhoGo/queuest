@@ -1,0 +1,86 @@
+/* Demo-local controls use the existing Queuest tokens and visual contract.
+   Kept independent of the desktop UI component bookmark. */
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--paper-bright);
+  box-shadow: 2px 2px 0 var(--shadow);
+  font: var(--text-control) / 1.4 var(--font-body);
+  text-align: center;
+  white-space: normal;
+  transition:
+    transform 0.14s ease,
+    background-color 0.14s ease,
+    border-color 0.14s ease;
+}
+.ui-button-primary {
+  border-color: var(--teal);
+  color: var(--paper-bright);
+  background: var(--teal);
+}
+.ui-button-small {
+  min-height: 34px;
+  padding: var(--space-1) var(--space-2);
+}
+.ui-button-secondary.ui-button-small {
+  border: 1px solid var(--border-soft);
+  box-shadow: none;
+}
+.ui-button:not(:disabled):hover {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--gold);
+}
+.ui-button:not(:disabled):active {
+  transform: translate(1px, 1px);
+}
+.ui-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+.ui-panel {
+  min-width: 0;
+  padding: var(--space-4);
+  border: var(--border);
+  background: var(--paper-bright);
+  box-shadow: 3px 3px 0 var(--shadow);
+}
+.ui-field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.ui-field > label {
+  font-size: var(--text-control);
+  font-weight: 600;
+}
+.ui-field > input,
+.ui-field > textarea,
+.ui-field > select {
+  width: 100%;
+  min-width: 0;
+}
+.ui-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.ui-check-row input {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  accent-color: var(--teal);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-button {
+    transition: none;
+  }
+}

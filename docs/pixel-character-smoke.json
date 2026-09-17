@@ -1,0 +1,228 @@
+{
+  "renderChecks": [
+    {
+      "n": 128,
+      "diagnostics": {
+        "drawingBuffer": [
+          128,
+          128
+        ],
+        "composer": [
+          128,
+          128
+        ],
+        "beauty": [
+          128,
+          128
+        ],
+        "normals": [
+          128,
+          128
+        ],
+        "pixelSize": 1,
+        "dpr": 1,
+        "normalRenders": 1,
+        "passes": 2,
+        "drawCalls": 80,
+        "triangles": 5642,
+        "geometries": 4,
+        "textures": 4,
+        "gpuMs": 0.082375,
+        "gpuSampleId": 18,
+        "gpuSupported": true,
+        "animationMs": 0,
+        "bodyUpdateMs": 0,
+        "frameMs": 2,
+        "resolution": 128,
+        "displaySize": 256,
+        "requestedDisplayScale": 2,
+        "characterCount": 1,
+        "phase": 3.031508413153842,
+        "jumpStage": "grounded",
+        "jumpHeight": 0,
+        "body": {
+          "headWidth": 1,
+          "headDepth": 0.82,
+          "shoulderWidth": 0.88,
+          "chestWidth": 0.68,
+          "chestDepth": 0.43,
+          "waistWidth": 0.52,
+          "waistDepth": 0.35,
+          "pelvisWidth": 0.62,
+          "pelvisDepth": 0.4,
+          "armLength": 0.8,
+          "upperArmThickness": 0.22,
+          "forearmThickness": 0.19,
+          "handSize": 1,
+          "legLengthRatio": 0.56,
+          "thighThickness": 0.26,
+          "calfThickness": 0.22,
+          "footSize": 1
+        },
+        "dimensions": {
+          "head": 1,
+          "belowHead": 2,
+          "height": 3,
+          "neck": 0.12,
+          "pelvis": 0.24,
+          "foot": 0.16,
+          "leg": 0.8288000000000001,
+          "torso": 0.6511999999999999,
+          "thigh": 0.42268800000000006,
+          "calf": 0.40611200000000003,
+          "upperArm": 0.41600000000000004,
+          "forearm": 0.384,
+          "hipY": 0.9888000000000001,
+          "shoulderY": 1.7599999999999998,
+          "hipSpread": 0.3596,
+          "shoulderSpread": 0.88
+        },
+        "worldPosition": {
+          "x": 0,
+          "z": 0
+        },
+        "running": false,
+        "disposed": false
+      },
+      "baselineTarget": [
+        128,
+        128
+      ],
+      "outlineExtra": 202,
+      "bounds": [
+        53,
+        17,
+        74,
+        75
+      ]
+    },
+    {
+      "n": 256,
+      "diagnostics": {
+        "drawingBuffer": [
+          256,
+          256
+        ],
+        "composer": [
+          256,
+          256
+        ],
+        "beauty": [
+          256,
+          256
+        ],
+        "normals": [
+          256,
+          256
+        ],
+        "pixelSize": 1,
+        "dpr": 1,
+        "normalRenders": 1,
+        "passes": 2,
+        "drawCalls": 80,
+        "triangles": 5642,
+        "geometries": 4,
+        "textures": 4,
+        "gpuMs": 0.082375,
+        "gpuSampleId": 18,
+        "gpuSupported": true,
+        "animationMs": 0,
+        "bodyUpdateMs": 0,
+        "frameMs": 0.30000001192092896,
+        "resolution": 256,
+        "displaySize": 512,
+        "requestedDisplayScale": 2,
+        "characterCount": 1,
+        "phase": 3.031508413153842,
+        "jumpStage": "grounded",
+        "jumpHeight": 0,
+        "body": {
+          "headWidth": 1,
+          "headDepth": 0.82,
+          "shoulderWidth": 0.88,
+          "chestWidth": 0.68,
+          "chestDepth": 0.43,
+          "waistWidth": 0.52,
+          "waistDepth": 0.35,
+          "pelvisWidth": 0.62,
+          "pelvisDepth": 0.4,
+          "armLength": 0.8,
+          "upperArmThickness": 0.22,
+          "forearmThickness": 0.19,
+          "handSize": 1,
+          "legLengthRatio": 0.56,
+          "thighThickness": 0.26,
+          "calfThickness": 0.22,
+          "footSize": 1
+        },
+        "dimensions": {
+          "head": 1,
+          "belowHead": 2,
+          "height": 3,
+          "neck": 0.12,
+          "pelvis": 0.24,
+          "foot": 0.16,
+          "leg": 0.8288000000000001,
+          "torso": 0.6511999999999999,
+          "thigh": 0.42268800000000006,
+          "calf": 0.40611200000000003,
+          "upperArm": 0.41600000000000004,
+          "forearm": 0.384,
+          "hipY": 0.9888000000000001,
+          "shoulderY": 1.7599999999999998,
+          "hipSpread": 0.3596,
+          "shoulderSpread": 0.88
+        },
+        "worldPosition": {
+          "x": 0,
+          "z": 0
+        },
+        "running": false,
+        "disposed": false
+      },
+      "baselineTarget": [
+        256,
+        256
+      ],
+      "outlineExtra": 459,
+      "bounds": [
+        106,
+        35,
+        149,
+        150
+      ]
+    }
+  ],
+  "transitions": {
+    "repeated": false,
+    "stages": [
+      "prepare",
+      "ascending",
+      "descending",
+      "landing",
+      "recovery",
+      "grounded"
+    ],
+    "phaseBefore": 0.31588179836019215,
+    "phaseAfter": 2.646944163952164,
+    "minMargin": 27,
+    "weight": 2.061153622438355e-9
+  },
+  "lifecycle": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+  ],
+  "errors": [],
+  "browser": "153.0.8010.48",
+  "dpr": 2
+}

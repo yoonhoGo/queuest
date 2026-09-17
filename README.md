@@ -29,6 +29,13 @@ macOS 27 이상에서는 상태 항목에 native 메뉴를 연결할 때 클릭 
 
 ![Queuest macOS 메뉴바 팝오버 미리보기](./docs/images/queuest-menu-preview.png)
 
+## 실시간 도트 캐릭터 실험실
+
+Three.js + TypeScript의 독립 엔진과 웹 데모는 `npm ci` 후 `npm run dev:pixel`로 실행합니다.
+브라우저 주소는 `http://127.0.0.1:1430`입니다. `npm run build:pixel`, `npm run test:pixel`로 빌드·단위 테스트를 실행합니다.
+3등신 체형, 실시간 동작, 저해상도 GPU 도트 효과와 벤치마크의 API·단위·검증 범위는
+[엔진 README](packages/pixel-character/README.md)에 있습니다. 기존 Tauri 캐릭터 화면과 별도로 실행됩니다.
+
 ## 디자인 시스템
 
 새 UI 기능은 [디자인 시스템](./docs/design-system.md)을 기준으로 구현합니다. 승인된 레트로 웹 미리보기, 공용 토큰·컴포넌트, 화면별 패턴과 검수 절차를 담고 있습니다. [AGENTS.md](./AGENTS.md)에 구현 전 필수 참고 지침을 연결했습니다.

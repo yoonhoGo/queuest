@@ -8,6 +8,10 @@
     "packages/*"
   ],
   "scripts": {
+    "dev:pixel": "npm run dev --workspace @queuest/pixel-character-demo",
+    "build:pixel": "npm run build --workspace @queuest/pixel-character && npm run build --workspace @queuest/pixel-character-demo",
+    "test:pixel": "npm test --workspace @queuest/pixel-character",
+    "smoke:pixel": "npm run smoke --workspace @queuest/pixel-character-demo",
     "dev": "npm run dev --workspace @queuest/desktop",
     "build": "npm run build --workspace @queuest/desktop",
     "install:cli": "sh scripts/install.sh",

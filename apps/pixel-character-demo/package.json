@@ -1,0 +1,25 @@
+{
+  "name": "@queuest/pixel-character-demo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1430",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 1430",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "@queuest/pixel-character": "0.1.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "vite": "8.2.2",
+    "typescript": "6.0.3",
+    "@types/react": "19.1.8",
+    "@types/react-dom": "19.1.6",
+    "playwright": "1.58.2"
+  }
+}
